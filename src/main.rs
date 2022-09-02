@@ -19,7 +19,7 @@ fn setup(mut commands: Commands) {
     commands.spawn_bundle(Camera2dBundle::default());
     commands
         .spawn()
-        .insert(PixelMap::new(UVec2 { x: 100, y: 100 }, 100, None));
+        .insert(PixelMap::new(UVec2 { x: 100, y: 100 }, 1, None));
 }
 
 fn spawn_shit(mut query: Query<&mut PixelMap>) {

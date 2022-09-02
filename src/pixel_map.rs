@@ -74,9 +74,8 @@ fn add_pixel_map_chunks(
                 None => pixel_map.empty_texture.clone(),
             };
 
-            let computed_position: Vec2 = (pos
-                * pixel_map.chunk_size.as_ivec2()
-                * IVec2 {
+            let computed_position: Vec2 = (pos * pixel_map.chunk_size.as_ivec2()
+                / IVec2 {
                     x: pixel_map.pixels_per_unit as i32,
                     y: pixel_map.pixels_per_unit as i32,
                 })
