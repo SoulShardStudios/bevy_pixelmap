@@ -4,25 +4,26 @@ use bevy::{
     utils::HashMap,
 };
 
+use crate::chunk_position::IChunkPosition;
+#[derive(Component)]
+pub struct PixelChunk;
+
 #[derive(Component)]
 pub struct PixelMap {
     pub chunk_size: UVec2,
-    pub chunks: HashMap<IVec2, Entity>,
+    pub img_data: Vec<(Image, Handle<Image>)>,
+    pub modified: Vec<bool>,
+    pub positions: Vec<IVec2>,
+    pub entities: Vec<Entity>,
     pub chunk_add_queue: HashMap<IVec2, Option<Image>>,
-    pub chunk_remove_queue: Vec<IVec2>,
     pub empty_texture: Image,
-    pub pixels_per_unit: u32,
+    pub root_entity: Entity,
 }
 
 impl PixelMap {
-    pub fn new(chunk_size: UVec2, pixels_per_unit: u32, empty_texture: Option<Image>) -> Self {
+    pub fn new(chunk_size: UVec2, empty_texture: Option<Image>, root_entity: Entity) -> Self {
         assert!(chunk_size.x > 0);
         assert!(chunk_size.y > 0);
-
-        let raw_tex_data: Vec<u8> = (0..(chunk_size.x * chunk_size.y))
-            .map(|x| vec![255, 0, 0, 128])
-            .flat_map(|x| x.into_iter())
-            .collect();
 
         let empty = match empty_texture {
             Some(x) => x,
@@ -33,26 +34,30 @@ impl PixelMap {
                     height: chunk_size.y,
                 },
                 TextureDimension::D2,
-                raw_tex_data,
+                vec![0; (chunk_size.x * chunk_size.y * 4) as usize],
                 TextureFormat::Rgba8Unorm,
             ),
         };
 
         PixelMap {
             chunk_size: chunk_size,
-            chunks: HashMap::new(),
+            img_data: Vec::new(),
+            modified: Vec::new(),
+            positions: Vec::new(),
+            entities: Vec::new(),
             empty_texture: empty,
-            pixels_per_unit: pixels_per_unit,
             chunk_add_queue: HashMap::new(),
-            chunk_remove_queue: Vec::new(),
+            root_entity: root_entity,
         }
     }
 
     pub fn add_chunk(&mut self, position: IVec2, texture: Option<Image>) {
         self.chunk_add_queue.insert(position, texture);
     }
-    pub fn remove_chunk(&mut self, position: IVec2) {
-        self.chunk_remove_queue.push(position);
+
+    pub fn set_pixel(&mut self, world_position: IVec2, color: Color) {
+        let chunk_pos = IChunkPosition::from_world(world_position, self.chunk_size);
+        self.img_data[0].0.data[0] = 255;
     }
 }
 
@@ -61,10 +66,16 @@ fn add_pixel_map_chunks(
     mut textures: ResMut<Assets<Image>>,
     mut query: Query<&mut PixelMap>,
 ) {
+    let mut ct = 0;
+
     for mut pixel_map in query.iter_mut() {
-        let mut to_add = HashMap::new();
+        let mut added_images = Vec::new();
+        let mut added_entities = Vec::new();
+        let mut added_positions = Vec::new();
         for (position, texture) in pixel_map.chunk_add_queue.iter() {
-            if pixel_map.chunks.contains_key(position) {
+            ct += 1;
+            if pixel_map.positions.contains(position) {
+                println!("contained");
                 continue;
             }
 
@@ -74,26 +85,27 @@ fn add_pixel_map_chunks(
                 None => pixel_map.empty_texture.clone(),
             };
 
-            let computed_position: Vec2 = (pos * pixel_map.chunk_size.as_ivec2()
-                / IVec2 {
-                    x: pixel_map.pixels_per_unit as i32,
-                    y: pixel_map.pixels_per_unit as i32,
-                })
-            .as_vec2();
+            let computed_position: Vec2 = (pos * pixel_map.chunk_size.as_ivec2()).as_vec2();
 
-            let tex_handle = textures.add(tex);
-
+            let tex_handle = textures.add(tex.clone());
             let id = commands
                 .spawn_bundle(SpriteBundle {
-                    texture: tex_handle,
+                    texture: tex_handle.clone(),
                     transform: Transform::from_xyz(computed_position.x, computed_position.y, 0.0),
                     ..Default::default()
                 })
+                .insert(PixelChunk)
                 .id();
+            commands.entity(pixel_map.root_entity).add_child(id);
 
-            to_add.insert(pos, id);
+            added_positions.push(*position);
+            added_entities.push(id);
+            added_images.push((tex, tex_handle));
         }
-        pixel_map.chunks.extend(to_add.iter());
+        println!("{}", ct);
+        pixel_map.entities.append(&mut added_entities);
+        pixel_map.positions.append(&mut added_positions);
+        pixel_map.img_data.append(&mut added_images);
         pixel_map.chunk_add_queue.clear();
     }
 }
