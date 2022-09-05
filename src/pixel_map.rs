@@ -101,10 +101,11 @@ fn add_pixel_map_chunks(
             let c_pos = IChunkPosition::from_world(*position, pixel_map.chunk_size);
             let pos = pixel_map.positions[&c_pos.outer];
             let ind = c_pos.get_index(pixel_map.chunk_size) * 4;
-            textures.get_mut(&pixel_map.img_data[pos]).unwrap().data[ind + 0] = color[0];
-            textures.get_mut(&pixel_map.img_data[pos]).unwrap().data[ind + 1] = color[1];
-            textures.get_mut(&pixel_map.img_data[pos]).unwrap().data[ind + 2] = color[2];
-            textures.get_mut(&pixel_map.img_data[pos]).unwrap().data[ind + 3] = color[3];
+            let data = &mut textures.get_mut(&pixel_map.img_data[pos]).unwrap().data;
+            data[ind + 0] = color[0];
+            data[ind + 1] = color[1];
+            data[ind + 2] = color[2];
+            data[ind + 3] = color[3];
         }
         pixel_map.set_pixel_queue.clear();
     }
