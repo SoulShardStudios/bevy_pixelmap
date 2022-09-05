@@ -5,19 +5,30 @@ use bevy::{
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
+use bevy_inspector_egui::WorldInspectorPlugin;
 use pixel_map::{PixelMap, PixelMaps};
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_startup_system(setup)
         .add_system(spawn_shit)
         .add_plugin(PixelMaps)
+        .add_plugin(WorldInspectorPlugin::new())
         .run();
 }
 
 fn setup(mut commands: Commands) {
     commands.spawn_bundle(Camera2dBundle::default());
-    let id = commands.spawn().id();
+    let id = commands
+        .spawn()
+        .insert_bundle(TransformBundle {
+            ..Default::default()
+        })
+        .insert_bundle(VisibilityBundle {
+            ..Default::default()
+        })
+        .id();
     commands
         .entity(id)
         .insert(PixelMap::new(UVec2 { x: 100, y: 100 }, None, id));

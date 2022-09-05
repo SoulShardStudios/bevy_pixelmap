@@ -75,7 +75,7 @@ fn add_pixel_map_chunks(
         for (position, texture) in pixel_map.chunk_add_queue.iter() {
             ct += 1;
             if pixel_map.positions.contains(position) {
-                println!("contained");
+                // println!("contained");
                 continue;
             }
 
@@ -86,6 +86,7 @@ fn add_pixel_map_chunks(
             };
 
             let computed_position: Vec2 = (pos * pixel_map.chunk_size.as_ivec2()).as_vec2();
+            // println!("{:#?}", computed_position);
 
             let tex_handle = textures.add(tex.clone());
             let id = commands
@@ -102,7 +103,7 @@ fn add_pixel_map_chunks(
             added_entities.push(id);
             added_images.push((tex, tex_handle));
         }
-        println!("{}", ct);
+        // println!("{}", ct);
         pixel_map.entities.append(&mut added_entities);
         pixel_map.positions.append(&mut added_positions);
         pixel_map.img_data.append(&mut added_images);
