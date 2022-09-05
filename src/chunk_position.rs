@@ -18,6 +18,9 @@ impl IChunkPosition {
             },
         }
     }
+    pub fn get_index(&self, chunk_size: UVec2) -> usize {
+        return (self.inner.y * chunk_size.x + self.inner.x) as usize;
+    }
 }
 
 pub struct ChunkPosition {

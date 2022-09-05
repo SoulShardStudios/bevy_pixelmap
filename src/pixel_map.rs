@@ -11,11 +11,11 @@ pub struct PixelChunk;
 #[derive(Component)]
 pub struct PixelMap {
     pub chunk_size: UVec2,
-    pub img_data: Vec<(Image, Handle<Image>)>,
+    pub img_data: Vec<Handle<Image>>,
     pub modified: Vec<bool>,
-    pub positions: Vec<IVec2>,
+    pub positions: HashMap<IVec2, usize>,
     pub entities: Vec<Entity>,
-    pub chunk_add_queue: HashMap<IVec2, Option<Image>>,
+    pub set_pixel_queue: HashMap<IVec2, [u8; 4]>,
     pub empty_texture: Image,
     pub root_entity: Entity,
 }
@@ -43,71 +43,70 @@ impl PixelMap {
             chunk_size: chunk_size,
             img_data: Vec::new(),
             modified: Vec::new(),
-            positions: Vec::new(),
+            positions: HashMap::new(),
             entities: Vec::new(),
             empty_texture: empty,
-            chunk_add_queue: HashMap::new(),
+            set_pixel_queue: HashMap::new(),
             root_entity: root_entity,
         }
     }
 
-    pub fn add_chunk(&mut self, position: IVec2, texture: Option<Image>) {
-        self.chunk_add_queue.insert(position, texture);
-    }
-
-    pub fn set_pixel(&mut self, world_position: IVec2, color: Color) {
-        let chunk_pos = IChunkPosition::from_world(world_position, self.chunk_size);
-        self.img_data[0].0.data[0] = 255;
+    pub fn set_pixel(&mut self, world_position: IVec2, color: [u8; 4]) {
+        self.set_pixel_queue.insert(world_position, color);
     }
 }
 
 fn add_pixel_map_chunks(
     mut commands: Commands,
     mut textures: ResMut<Assets<Image>>,
-    mut query: Query<&mut PixelMap>,
+    mut pixel_map_query: Query<&mut PixelMap>,
 ) {
-    let mut ct = 0;
-
-    for mut pixel_map in query.iter_mut() {
+    for mut pixel_map in pixel_map_query.iter_mut() {
         let mut added_images = Vec::new();
         let mut added_entities = Vec::new();
-        let mut added_positions = Vec::new();
-        for (position, texture) in pixel_map.chunk_add_queue.iter() {
-            ct += 1;
-            if pixel_map.positions.contains(position) {
-                // println!("contained");
+        let mut added_positions = HashMap::new();
+        for (position, color) in pixel_map.set_pixel_queue.iter() {
+            let c_pos = IChunkPosition::from_world(*position, pixel_map.chunk_size);
+
+            if !pixel_map.positions.contains_key(&c_pos.outer)
+                && !added_positions.contains_key(&c_pos.outer)
+            {
+                let computed_position: Vec2 =
+                    (c_pos.outer * pixel_map.chunk_size.as_ivec2()).as_vec2();
+                let tex_handle = textures.add(pixel_map.empty_texture.clone());
+                let id = commands
+                    .spawn_bundle(SpriteBundle {
+                        texture: tex_handle.clone(),
+                        transform: Transform::from_xyz(
+                            computed_position.x,
+                            computed_position.y,
+                            0.0,
+                        ),
+                        ..Default::default()
+                    })
+                    .insert(PixelChunk)
+                    .id();
+                commands.entity(pixel_map.root_entity).add_child(id);
+
+                added_positions.insert(c_pos.outer, pixel_map.img_data.len());
+                added_entities.push(id);
+                added_images.push(tex_handle);
                 continue;
             }
-
-            let pos = position.clone();
-            let tex = match texture {
-                Some(x) => x.clone(),
-                None => pixel_map.empty_texture.clone(),
-            };
-
-            let computed_position: Vec2 = (pos * pixel_map.chunk_size.as_ivec2()).as_vec2();
-            // println!("{:#?}", computed_position);
-
-            let tex_handle = textures.add(tex.clone());
-            let id = commands
-                .spawn_bundle(SpriteBundle {
-                    texture: tex_handle.clone(),
-                    transform: Transform::from_xyz(computed_position.x, computed_position.y, 0.0),
-                    ..Default::default()
-                })
-                .insert(PixelChunk)
-                .id();
-            commands.entity(pixel_map.root_entity).add_child(id);
-
-            added_positions.push(*position);
-            added_entities.push(id);
-            added_images.push((tex, tex_handle));
         }
-        // println!("{}", ct);
         pixel_map.entities.append(&mut added_entities);
-        pixel_map.positions.append(&mut added_positions);
+        pixel_map.positions.extend(added_positions.iter());
         pixel_map.img_data.append(&mut added_images);
-        pixel_map.chunk_add_queue.clear();
+        for (position, color) in pixel_map.set_pixel_queue.iter() {
+            let c_pos = IChunkPosition::from_world(*position, pixel_map.chunk_size);
+            let pos = pixel_map.positions[&c_pos.outer];
+            let ind = c_pos.get_index(pixel_map.chunk_size) * 4;
+            textures.get_mut(&pixel_map.img_data[pos]).unwrap().data[ind + 0] = color[0];
+            textures.get_mut(&pixel_map.img_data[pos]).unwrap().data[ind + 1] = color[1];
+            textures.get_mut(&pixel_map.img_data[pos]).unwrap().data[ind + 2] = color[2];
+            textures.get_mut(&pixel_map.img_data[pos]).unwrap().data[ind + 3] = color[3];
+        }
+        pixel_map.set_pixel_queue.clear();
     }
 }
 
