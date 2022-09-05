@@ -33,14 +33,14 @@ impl PixelMap {
 
         let mut empty = match empty_texture {
             Some(x) => x,
-            None => Image::new(
+            None => Image::new_fill(
                 Extent3d {
                     depth_or_array_layers: 1,
                     width: chunk_size.x,
                     height: chunk_size.y,
                 },
                 TextureDimension::D2,
-                vec![0; (chunk_size.x * chunk_size.y * 4) as usize],
+                &[0, 0, 0, 0],
                 TextureFormat::Rgba8Unorm,
             ),
         };
@@ -99,8 +99,9 @@ fn add_pixel_map_chunks(
                     .id();
                 commands.entity(pixel_map.root_entity).add_child(id);
 
-                added_positions.insert(c_pos, pixel_map.img_data.len());
+                added_positions.insert(c_pos, pixel_map.img_data.len() + added_positions.len());
                 added_entities.push(id);
+
                 added_images.push(tex_handle);
                 continue;
             }
@@ -109,12 +110,13 @@ fn add_pixel_map_chunks(
         pixel_map.img_data.append(&mut added_images);
         for (position, color) in pixel_map.set_pixel_queue.iter() {
             let pos = pixel_map.positions[&get_chunk_outer_i(*position, pixel_map.chunk_size)];
-            let ind = get_chunk_index_i(*position, pixel_map.chunk_size) * 4;
+            let ind = get_chunk_index_i(*position, pixel_map.chunk_size);
             let data = &mut textures.get_mut(&pixel_map.img_data[pos]).unwrap().data;
-            data[ind + 0] = color[0];
-            data[ind + 1] = color[1];
-            data[ind + 2] = color[2];
-            data[ind + 3] = color[3];
+
+            data[ind * 4 + 0] = color[0];
+            data[ind * 4 + 1] = color[1];
+            data[ind * 4 + 2] = color[2];
+            data[ind * 4 + 3] = color[3];
         }
         pixel_map.set_pixel_queue.clear();
     }
