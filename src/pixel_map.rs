@@ -41,7 +41,7 @@ impl PixelMap {
                 },
                 TextureDimension::D2,
                 &[0, 0, 0, 0],
-                TextureFormat::Rgba8Unorm,
+                TextureFormat::Rgba8UnormSrgb,
             ),
         };
 
