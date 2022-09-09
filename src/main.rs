@@ -14,6 +14,7 @@ fn main() {
         .add_startup_system(setup)
         .add_system(place_uv_test)
         .add_system(place_line_test)
+        .add_system(get_pixel_test)
         .add_plugin(PixelMaps)
         .add_plugin(WorldInspectorPlugin::new())
         .run();
@@ -42,9 +43,13 @@ fn setup(mut commands: Commands) {
             ..Default::default()
         })
         .id();
-    commands
-        .entity(id)
-        .insert(PixelMap::new(UVec2 { x: 100, y: 100 }, id, None, None));
+    commands.entity(id).insert(PixelMap::new(
+        UVec2 { x: 100, y: 100 },
+        id,
+        None,
+        None,
+        None,
+    ));
 }
 
 fn place_uv_test(mut query: Query<&mut PixelMap>) {
@@ -74,5 +79,11 @@ fn place_line_test(mut query: Query<&mut PixelMap>) {
             Bresenham::new((-100, -100), (50, 75)).map(|(x, y)| (IVec2 { x: x, y: y }, color)),
         );
         pixel_map.set_pixels(pixels)
+    }
+}
+
+fn get_pixel_test(query: Query<&PixelMap>, textures: Res<Assets<Image>>) {
+    for pixel_map in query.iter() {
+        let pixel = pixel_map.get_pixel(IVec2 { x: 0, y: 0 }, &textures);
     }
 }
