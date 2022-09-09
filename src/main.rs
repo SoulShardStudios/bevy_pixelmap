@@ -91,7 +91,7 @@ fn place_line_test(
 
 fn get_pixel_test(query: Query<&PixelMap>, textures: Res<Assets<Image>>) {
     for pixel_map in query.iter() {
-        let pixel = pixel_map.get_pixels(&vec![IVec2 { x: 0, y: 0 }], &textures);
-        println!("{:#?}", pixel)
+        let _pixel = pixel_map.get_pixels(&vec![IVec2 { x: 0, y: 0 }], &textures);
+        // println!("{:#?}", _pixel)
     }
 }
