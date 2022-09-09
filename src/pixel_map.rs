@@ -68,17 +68,50 @@ impl PixelMap {
         }
     }
 
-    pub fn get_pixel(&self, world_position: IVec2, textures: &Res<Assets<Image>>) -> [u8; 4] {
-        let outer = get_chunk_outer_i(world_position, self.chunk_size);
-        if !self.positions.contains_key(&outer) {
-            return self.default_chunk_color;
+    pub fn get_pixels(
+        &self,
+        world_positions: &Vec<IVec2>,
+        textures: &Res<Assets<Image>>,
+    ) -> Vec<[u8; 4]> {
+        let mut resources: HashMap<IVec2, Option<&Vec<u8>>> = HashMap::new();
+        for x in world_positions {
+            let outer = get_chunk_outer_i(*x, self.chunk_size);
+            if resources.contains_key(&outer) {
+                continue;
+            }
+            if !self.positions.contains_key(&outer) {
+                resources.insert(outer, None);
+                continue;
+            }
+            resources.insert(
+                outer,
+                Some(
+                    &textures
+                        .get(&self.img_data[self.positions[&outer]])
+                        .unwrap()
+                        .data,
+                ),
+            );
         }
-        let ind = get_chunk_index_i(world_position, self.chunk_size);
-        let data = &textures
-            .get(&self.img_data[self.positions[&outer]])
-            .unwrap()
-            .data;
-        return [data[ind + 0], data[ind + 1], data[ind + 2], data[ind + 3]];
+        return world_positions
+            .iter()
+            .map(|x| {
+                let outer = get_chunk_outer_i(*x, self.chunk_size);
+                let resource = resources[&outer];
+                match resource {
+                    Some(true_res) => {
+                        let ind = get_chunk_index_i(*x, self.chunk_size);
+                        [
+                            true_res[ind],
+                            true_res[ind + 1],
+                            true_res[ind + 2],
+                            true_res[ind + 3],
+                        ]
+                    }
+                    None => self.default_chunk_color,
+                }
+            })
+            .collect();
     }
 
     pub fn add_chunk(
