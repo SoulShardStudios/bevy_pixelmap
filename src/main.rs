@@ -4,7 +4,7 @@ mod pixel_map;
 use bevy::{prelude::*, render::camera::ScalingMode, utils::HashMap};
 use bevy_inspector_egui::WorldInspectorPlugin;
 use line_drawing::Bresenham;
-use pixel_map::{PixelMap, PixelMaps};
+use pixel_map::PixelMap;
 
 const WINDOW_SIZE: UVec2 = UVec2 { x: 426, y: 240 }; // 240p
 
@@ -15,7 +15,6 @@ fn main() {
         .add_system(place_uv_test)
         .add_system(place_line_test)
         .add_system(get_pixel_test)
-        .add_plugin(PixelMaps)
         .add_plugin(WorldInspectorPlugin::new())
         .run();
 }
@@ -52,7 +51,11 @@ fn setup(mut commands: Commands) {
     ));
 }
 
-fn place_uv_test(mut query: Query<&mut PixelMap>) {
+fn place_uv_test(
+    mut query: Query<&mut PixelMap>,
+    mut textures: ResMut<Assets<Image>>,
+    mut commands: Commands,
+) {
     for mut pixel_map in query.iter_mut() {
         let mut pixels = HashMap::new();
 
@@ -68,17 +71,21 @@ fn place_uv_test(mut query: Query<&mut PixelMap>) {
                 );
             }
         }
-        pixel_map.set_pixels(pixels);
+        pixel_map.set_pixels(pixels, &mut commands, &mut textures);
     }
 }
 
-fn place_line_test(mut query: Query<&mut PixelMap>) {
+fn place_line_test(
+    mut query: Query<&mut PixelMap>,
+    mut textures: ResMut<Assets<Image>>,
+    mut commands: Commands,
+) {
     let color: [u8; 4] = [255, 255, 255, 255];
     for mut pixel_map in query.iter_mut() {
         let pixels = HashMap::from_iter(
             Bresenham::new((-100, -100), (50, 75)).map(|(x, y)| (IVec2 { x: x, y: y }, color)),
         );
-        pixel_map.set_pixels(pixels)
+        pixel_map.set_pixels(pixels, &mut commands, &mut textures);
     }
 }
 

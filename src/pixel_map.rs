@@ -16,7 +16,6 @@ pub struct PixelMap {
     chunk_size: UVec2,
     img_data: Vec<Handle<Image>>,
     positions: HashMap<IVec2, usize>,
-    set_pixel_queue: HashMap<IVec2, [u8; 4]>,
     pub empty_texture: Image,
     root_entity: Entity,
     default_chunk_color: [u8; 4],
@@ -64,7 +63,6 @@ impl PixelMap {
             img_data: Vec::new(),
             positions: HashMap::new(),
             empty_texture: empty,
-            set_pixel_queue: HashMap::new(),
             root_entity: root_entity,
             default_chunk_color: color,
         }
@@ -107,40 +105,23 @@ impl PixelMap {
         self.img_data.push(tex_handle);
     }
 
-    pub fn set_pixel(&mut self, world_position: IVec2, color: [u8; 4]) {
-        self.set_pixel_queue.insert(world_position, color);
-    }
-    pub fn set_pixels(&mut self, pixels: HashMap<IVec2, [u8; 4]>) {
-        self.set_pixel_queue.extend(pixels.iter())
-    }
-}
-
-fn add_pixel_map_chunks(
-    mut commands: Commands,
-    mut textures: ResMut<Assets<Image>>,
-    mut pixel_map_query: Query<&mut PixelMap>,
-) {
-    for mut pixel_map in pixel_map_query.iter_mut() {
-        for (position, color) in pixel_map.set_pixel_queue.clone().iter_mut() {
-            let chunk_pos = get_chunk_outer_i(*position, pixel_map.chunk_size);
-            pixel_map.add_chunk(chunk_pos, &mut commands, &mut textures);
-            let pos = pixel_map.positions[&chunk_pos];
-            let ind = get_chunk_index_i(*position, pixel_map.chunk_size);
-            let data = &mut textures.get_mut(&pixel_map.img_data[pos]).unwrap().data;
+    pub fn set_pixels(
+        &mut self,
+        pixels: HashMap<IVec2, [u8; 4]>,
+        commands: &mut Commands,
+        textures: &mut ResMut<Assets<Image>>,
+    ) {
+        for (position, color) in pixels.iter() {
+            let chunk_pos = get_chunk_outer_i(*position, self.chunk_size);
+            self.add_chunk(chunk_pos, commands, textures);
+            let pos = self.positions[&chunk_pos];
+            let ind = get_chunk_index_i(*position, self.chunk_size);
+            let data = &mut textures.get_mut(&self.img_data[pos]).unwrap().data;
 
             data[ind * 4 + 0] = color[0];
             data[ind * 4 + 1] = color[1];
             data[ind * 4 + 2] = color[2];
             data[ind * 4 + 3] = color[3];
         }
-        pixel_map.set_pixel_queue.clear();
-    }
-}
-
-pub struct PixelMaps;
-
-impl Plugin for PixelMaps {
-    fn build(&self, app: &mut App) {
-        app.add_system(add_pixel_map_chunks);
     }
 }
