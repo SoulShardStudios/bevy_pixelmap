@@ -86,7 +86,7 @@ fn add_pixel_map_chunks(
                 let computed_position: Vec2 = (c_pos * pixel_map.chunk_size.as_ivec2()).as_vec2();
                 let tex_handle = textures.add(pixel_map.empty_texture.clone());
                 let id = commands
-                    .spawn_bundle(SpriteBundle {
+                    .spawn(SpriteBundle {
                         texture: tex_handle.clone(),
                         transform: Transform::from_xyz(
                             computed_position.x,
