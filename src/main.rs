@@ -1,10 +1,8 @@
-//! Displays a single [`Sprite`], created from an image.
-mod chunk_position;
-mod pixel_map;
+mod pixel_map_cpu_naive;
 use bevy::{prelude::*, render::camera::ScalingMode, utils::HashMap};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use line_drawing::Bresenham;
-use pixel_map::{PixelMap, PixelMaps};
+use pixel_map_cpu_naive::{PixelMap, PixelMaps};
 use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 
 const WINDOW_SIZE: UVec2 = UVec2 { x: 426, y: 240 }; // 240p
@@ -23,7 +21,6 @@ fn main() {
 }
 
 fn setup(mut commands: Commands) {
-    let half = WINDOW_SIZE / 2;
     commands.spawn(Camera2dBundle {
         projection: OrthographicProjection {
             scaling_mode: ScalingMode::Fixed { width: WINDOW_SIZE[0] as f32, height: WINDOW_SIZE[1] as f32 },
