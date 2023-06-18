@@ -17,3 +17,4 @@ opt-level = 3
 bevy = "^0.10"
 bevy-inspector-egui = "0.18"
 line_drawing = "1.0.0"
+rand = "0.8.5"

@@ -7,7 +7,6 @@ use bevy::{
     utils::HashMap,
 };
 
-
 pub fn get_chunk_inner_i(position: IVec2, chunk_size: UVec2) -> UVec2 {
     UVec2 {
         x: position.x.rem_euclid(chunk_size.x as i32) as u32,
@@ -27,7 +26,6 @@ pub fn get_chunk_index_i(position: IVec2, chunk_size: UVec2) -> usize {
     return (((chunk_size.y - inner.y - 1) * chunk_size.x) + inner.x) as usize;
 }
 
-
 #[derive(Component)]
 pub struct PixelChunk;
 
@@ -36,7 +34,8 @@ pub struct PixelMap {
     chunk_size: UVec2,
     img_data: Vec<Handle<Image>>,
     positions: HashMap<IVec2, usize>,
-    set_pixel_queue: HashMap<IVec2, [u8; 4]>,
+    set_pixel_queue_positions: Vec<IVec2>,
+    set_pixel_queue_colors: Vec<[u8; 4]>,
     pub empty_texture: Image,
     root_entity: Entity,
 }
@@ -77,16 +76,23 @@ impl PixelMap {
             img_data: Vec::new(),
             positions: HashMap::new(),
             empty_texture: empty,
-            set_pixel_queue: HashMap::new(),
+            set_pixel_queue_positions: vec![],
+            set_pixel_queue_colors: vec![],
             root_entity: root_entity,
         }
     }
 
-    pub fn set_pixel(&mut self, world_position: IVec2, color: [u8; 4]) {
-        self.set_pixel_queue.insert(world_position, color);
-    }
-    pub fn set_pixels(&mut self, pixels: HashMap<IVec2, [u8; 4]>) {
-        self.set_pixel_queue.extend(pixels.iter())
+    pub fn set_pixels(
+        &mut self,
+        pixel_positions: Vec<IVec2>,
+        pixel_colors: Vec<[u8; 4]>,
+    ) -> Result<(), &str> {
+        if (pixel_positions.len() != pixel_colors.len()) {
+            return Err("Pixel map cannot be pushed to by separate array lengths for the colors and pixel positions");
+        }
+        self.set_pixel_queue_positions.extend(pixel_positions);
+        self.set_pixel_queue_colors.extend(pixel_colors);
+        Ok(())
     }
 }
 
@@ -99,7 +105,7 @@ fn add_pixel_map_chunks(
         let mut added_images = Vec::new();
         let mut added_entities = Vec::new();
         let mut added_positions = HashMap::new();
-        for (position, _color) in pixel_map.set_pixel_queue.iter() {
+        for position in pixel_map.set_pixel_queue_positions.iter() {
             let c_pos = get_chunk_outer_i(*position, pixel_map.chunk_size);
 
             if !pixel_map.positions.contains_key(&c_pos) && !added_positions.contains_key(&c_pos) {
@@ -128,17 +134,25 @@ fn add_pixel_map_chunks(
         }
         pixel_map.positions.extend(added_positions.iter());
         pixel_map.img_data.append(&mut added_images);
-        for (position, color) in pixel_map.set_pixel_queue.iter() {
+        for (position, color) in pixel_map
+            .set_pixel_queue_positions
+            .iter()
+            .zip(pixel_map.set_pixel_queue_colors.iter())
+        {
             let pos = pixel_map.positions[&get_chunk_outer_i(*position, pixel_map.chunk_size)];
-            let ind = get_chunk_index_i(*position, pixel_map.chunk_size);
-            let data = &mut textures.get_mut(&pixel_map.img_data[pos]).unwrap().data;
+            let ind = get_chunk_index_i(*position, pixel_map.chunk_size) * 4;
+            let data = &mut textures
+                .get_mut(&pixel_map.img_data[pos])
+                .expect("texture data owned by the pixel map should be mutable")
+                .data;
 
-            data[ind * 4 + 0] = color[0];
-            data[ind * 4 + 1] = color[1];
-            data[ind * 4 + 2] = color[2];
-            data[ind * 4 + 3] = color[3];
+            data[ind] = color[0];
+            data[ind + 1] = color[1];
+            data[ind + 2] = color[2];
+            data[ind + 3] = color[3];
         }
-        pixel_map.set_pixel_queue.clear();
+        pixel_map.set_pixel_queue_colors.clear();
+        pixel_map.set_pixel_queue_positions.clear();
     }
 }
 
