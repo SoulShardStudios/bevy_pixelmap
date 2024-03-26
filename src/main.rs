@@ -1,5 +1,8 @@
 mod pixel_map_cpu;
-mod pixel_map_gpu;
+extern crate bevy;
+extern crate bevy_inspector_egui;
+extern crate line_drawing;
+extern crate rand;
 use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::{prelude::*, render::camera::ScalingMode};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
@@ -11,13 +14,12 @@ const WINDOW_SIZE: UVec2 = UVec2 { x: 426, y: 240 }; // 240p
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_startup_system(setup)
-        .add_system(place_uv_test)
-        .add_system(place_line_test)
-        .add_plugin(PixelMaps)
-        .add_plugin(LogDiagnosticsPlugin::default())
-        .add_plugin(FrameTimeDiagnosticsPlugin::default())
-        .add_plugin(WorldInspectorPlugin::new())
+        .add_systems(Startup, setup)
+        .add_systems(Update, (place_uv_test, place_line_test))
+        .add_plugins(PixelMaps)
+        .add_plugins(LogDiagnosticsPlugin::default())
+        .add_plugins(FrameTimeDiagnosticsPlugin::default())
+        .add_plugins(WorldInspectorPlugin::new())
         .run();
 }
 
@@ -30,6 +32,11 @@ fn setup(mut commands: Commands) {
             },
             ..Default::default()
         },
+        transform: Transform::from_translation(Vec3 {
+            x: 0.0,
+            y: 0.0,
+            z: 10.0,
+        }),
         ..Default::default()
     });
     let id = commands

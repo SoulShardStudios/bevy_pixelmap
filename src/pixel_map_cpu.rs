@@ -1,6 +1,7 @@
 use bevy::{
     prelude::*,
     render::{
+        render_asset::RenderAssetUsages,
         render_resource::{Extent3d, TextureDimension, TextureFormat},
         texture::ImageSampler,
     },
@@ -61,6 +62,7 @@ impl PixelMap {
                 TextureDimension::D2,
                 &[0, 0, 0, 0],
                 TextureFormat::Rgba8UnormSrgb,
+                RenderAssetUsages::all(),
             ),
         };
 
@@ -69,7 +71,7 @@ impl PixelMap {
             None => ImageSampler::nearest(),
         };
 
-        empty.sampler_descriptor = img_sampler;
+        empty.sampler = img_sampler;
 
         PixelMap {
             chunk_size: chunk_size,
@@ -160,6 +162,6 @@ pub struct PixelMaps;
 
 impl Plugin for PixelMaps {
     fn build(&self, app: &mut App) {
-        app.add_system(add_pixel_map_chunks);
+        app.add_systems(Update, add_pixel_map_chunks);
     }
 }
