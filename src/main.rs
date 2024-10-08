@@ -84,7 +84,7 @@ fn place_line_test(mut query: Query<&mut PixelMap>) {
                 (random::<i8>() as i32, random::<i8>() as i32),
                 (random::<i8>() as i32, random::<i8>() as i32),
             )
-            .map(|(x, y)| IVec2 { x: x, y: y })
+            .map(|(x, y)| IVec2 { x, y })
             .collect();
             let line_len = line.len();
             pixel_map
