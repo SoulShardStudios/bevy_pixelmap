@@ -147,11 +147,7 @@ fn add_pixel_map_chunks(
                 .get_mut(&pixel_map.img_data[pos])
                 .expect("texture data owned by the pixel map should be mutable")
                 .data;
-
-            data[ind] = color[0];
-            data[ind + 1] = color[1];
-            data[ind + 2] = color[2];
-            data[ind + 3] = color[3];
+            data[ind..ind + 4].copy_from_slice(color);
         }
         pixel_map.set_pixel_queue_colors.clear();
         pixel_map.set_pixel_queue_positions.clear();
