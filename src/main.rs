@@ -27,8 +27,8 @@ fn setup(mut commands: Commands) {
     commands.spawn(Camera2dBundle {
         projection: OrthographicProjection {
             scaling_mode: ScalingMode::Fixed {
-                width: WINDOW_SIZE[0] as f32,
-                height: WINDOW_SIZE[1] as f32,
+                width: WINDOW_SIZE[0] as f32 * 3.0,
+                height: WINDOW_SIZE[1] as f32 * 3.0,
             },
             ..Default::default()
         },
@@ -81,8 +81,8 @@ fn place_line_test(mut query: Query<&mut PixelMap>) {
                 random::<u8>(),
             ];
             let line: Vec<IVec2> = Bresenham::new(
-                (random::<i8>() as i32, random::<i8>() as i32),
-                (random::<i8>() as i32, random::<i8>() as i32),
+                (random::<i8>() as i32 - 1048, random::<i8>() as i32 - 1048),
+                (random::<i8>() as i32 + 1048, random::<i8>() as i32 + 1048),
             )
             .map(|(x, y)| IVec2 { x, y })
             .collect();
