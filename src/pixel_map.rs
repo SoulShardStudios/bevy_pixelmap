@@ -1,21 +1,29 @@
+use std::borrow::Cow;
 use std::convert::TryInto;
 
+use bevy::render::render_resource::{
+    CachedComputePipelineId, CachedPipelineState, CommandEncoderDescriptor, ComputePassDescriptor,
+    ComputePipelineDescriptor, IntoBinding, PipelineCache,
+};
+use bevy::render::renderer::RenderQueue;
 use bevy::{
     prelude::*,
     render::{
         extract_component::{ExtractComponent, ExtractComponentPlugin},
-        render_asset::RenderAssetUsages,
+        render_asset::{RenderAssetUsages, RenderAssets},
         render_resource::{
-            BindGroupLayout, BindGroupLayoutEntry, BindingType, BufferBindingType, Extent3d,
-            ShaderStages, StorageTextureAccess, TextureDimension, TextureFormat, TextureUsages,
+            BindGroup, BindGroupEntries, BindGroupLayout, BindGroupLayoutEntry, BindingType,
+            BufferBindingType, BufferInitDescriptor, BufferUsages, Extent3d, ShaderStages,
+            StorageTextureAccess, TextureDimension, TextureFormat, TextureUsages,
             TextureViewDimension,
         },
         renderer::RenderDevice,
-        texture::ImageSampler,
+        texture::{GpuImage, ImageSampler},
         Render, RenderApp, RenderSet,
     },
     utils::HashMap,
 };
+use std::iter::once;
 
 use crate::chunk_position::{get_chunk_index_i, get_chunk_outer_i};
 
@@ -25,12 +33,20 @@ pub struct PixelChunk;
 #[derive(Component, ExtractComponent, Clone)]
 pub struct PixelMap {
     chunk_size: UVec2,
-    img_data: Vec<Handle<Image>>,
+    image_data: Vec<Handle<Image>>,
     positions: HashMap<IVec2, usize>,
     empty_texture: Image,
     root_entity: Entity,
     default_chunk_color: [u8; 4],
-    texture_queue: Vec<Handle<Image>>,
+    texture_queue: Vec<PixelPositionedTexture>,
+    texture_to_chunk_posses: HashMap<IVec2, Vec<PixelPositionedTexture>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PixelPositionedTexture {
+    pub position: IVec2,
+    pub image: Handle<Image>,
+    pub size: UVec2,
 }
 
 impl PixelMap {
@@ -51,22 +67,23 @@ impl PixelMap {
                 },
                 TextureDimension::D2,
                 &color,
-                TextureFormat::Rgba8UnormSrgb,
+                TextureFormat::Rgba8Unorm,
                 RenderAssetUsages::all(),
             )
         });
         empty.texture_descriptor.usage = TextureUsages::COPY_DST
-            | TextureUsages::STORAGE_BINDING
-            | TextureUsages::TEXTURE_BINDING;
+            | TextureUsages::TEXTURE_BINDING
+            | TextureUsages::STORAGE_BINDING;
         empty.sampler = sampler.unwrap_or_else(ImageSampler::nearest);
         PixelMap {
             chunk_size,
-            img_data: Vec::new(),
+            image_data: Vec::new(),
             positions: HashMap::new(),
             empty_texture: empty,
             root_entity,
             default_chunk_color: color,
             texture_queue: vec![],
+            texture_to_chunk_posses: HashMap::new(),
         }
     }
 
@@ -82,7 +99,7 @@ impl PixelMap {
             resources.entry(outer).or_insert_with(|| {
                 self.positions
                     .get(&outer)
-                    .and_then(|&pos| textures.get(&self.img_data[pos]).map(|img| &img.data))
+                    .and_then(|&pos| textures.get(&self.image_data[pos]).map(|img| &img.data))
             });
         });
         world_positions
@@ -120,7 +137,7 @@ impl PixelMap {
             .id();
         commands.entity(self.root_entity).add_child(id);
         self.positions.insert(chunk_position, self.positions.len());
-        self.img_data.push(tex_handle);
+        self.image_data.push(tex_handle);
     }
 
     pub fn set_pixels_cpu(
@@ -138,25 +155,245 @@ impl PixelMap {
                 self.add_chunk(chunk_pos, commands, textures);
                 let pos = self.positions[&chunk_pos];
                 let ind = get_chunk_index_i(position, self.chunk_size) * 4;
-                textures.get_mut(&self.img_data[pos]).unwrap().data[ind..ind + 4]
+                textures.get_mut(&self.image_data[pos]).unwrap().data[ind..ind + 4]
                     .copy_from_slice(&color);
             });
     }
 
-    pub fn set_pixels_gpu(textures: &Vec<Handle<Image>>) {}
+    pub fn set_pixels_gpu(
+        &mut self,
+        textures: Vec<PixelPositionedTexture>,
+        images: &mut ResMut<Assets<Image>>,
+    ) {
+        textures.iter().for_each(|positioned_image| {
+            let hi = positioned_image.image.id();
+            images
+                .get_mut(hi)
+                .expect("expect loaded")
+                .texture_descriptor
+                .format = TextureFormat::Rgba8Unorm;
+            images
+                .get_mut(hi)
+                .expect("expect loaded")
+                .texture_descriptor
+                .usage = TextureUsages::COPY_DST
+                | TextureUsages::TEXTURE_BINDING
+                | TextureUsages::STORAGE_BINDING;
+        });
+        self.texture_queue.extend(textures);
+    }
 }
 
-struct PixelMapGpuComputePlugin;
+pub struct PixelMapGpuComputePlugin;
+
+#[derive(Resource)]
+struct RenderData(
+    HashMap<IVec2, Vec<BindGroup>>,
+    HashMap<IVec2, CachedComputePipelineId>,
+);
 
 impl Plugin for PixelMapGpuComputePlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(ExtractComponentPlugin::<PixelMap>::default());
+        app.add_plugins(ExtractComponentPlugin::<PixelMap>::default())
+            .add_systems(Update, prepare_chunks);
         let render_app = app.sub_app_mut(RenderApp);
         render_app
             .add_systems(Render, prepare_binds.in_set(RenderSet::PrepareBindGroups))
             .add_systems(Render, apply_ops)
-            .insert_resource(RenderDataResource(HashMap::new()));
+            .insert_resource(RenderData(HashMap::new(), HashMap::new()));
     }
+}
+
+trait Points {
+    fn points(&self) -> Vec<IVec2>;
+}
+
+impl Points for IRect {
+    fn points(&self) -> Vec<IVec2> {
+        let mut points =
+            vec![IVec2 { x: 0, y: 0 }; (self.width().abs() * self.height().abs()) as usize];
+        for mut x in self.min.x..self.max.x {
+            x -= self.min.x;
+            for mut y in self.min.y..self.max.y {
+                y -= self.min.y;
+                points[(x * y) as usize] = IVec2 { x, y }
+            }
+        }
+        return points;
+    }
+}
+
+pub fn prepare_chunks(
+    mut pixel_map_query: Query<&mut PixelMap>,
+    mut commands: Commands,
+    mut textures: ResMut<Assets<Image>>,
+) {
+    for mut pixel_map in pixel_map_query.iter_mut() {
+        let mut texture_to_chunk_posses: HashMap<IVec2, Vec<PixelPositionedTexture>> =
+            HashMap::new();
+        for tex in pixel_map.texture_queue.iter() {
+            let c_pos_start = get_chunk_outer_i(tex.position, pixel_map.chunk_size);
+            let c_pos_end =
+                get_chunk_outer_i(tex.position + tex.size.as_ivec2(), pixel_map.chunk_size);
+            let points = IRect {
+                min: c_pos_start,
+                max: c_pos_end,
+            }
+            .points();
+            for position in points.iter() {
+                if texture_to_chunk_posses.contains_key(position) {
+                    texture_to_chunk_posses
+                        .get_mut(position)
+                        .expect("contains key")
+                        .push(tex.clone())
+                } else {
+                    texture_to_chunk_posses.insert(*position, vec![tex.clone()]);
+                }
+            }
+        }
+        for (k, _v) in texture_to_chunk_posses.iter() {
+            pixel_map.add_chunk(*k, &mut commands, &mut textures);
+        }
+        pixel_map.texture_to_chunk_posses = texture_to_chunk_posses;
+        pixel_map.texture_queue.clear();
+    }
+}
+
+pub fn prepare_binds(
+    pixel_map_query: Query<&PixelMap>,
+    render_device: Res<RenderDevice>,
+    gpu_images: Res<RenderAssets<GpuImage>>,
+    mut render_data: ResMut<RenderData>,
+    pipeline_cache: Res<PipelineCache>,
+    asset_server: Res<AssetServer>,
+) {
+    for pixel_map in pixel_map_query.iter() {
+        for (chunk_pos, chunk_texes) in pixel_map.texture_to_chunk_posses.iter() {
+            let input_texture_pos_buffer =
+                render_device.create_buffer_with_data(&BufferInitDescriptor {
+                    label: Some("input_texture_pos_buffer"),
+                    contents: bytemuck::cast_slice(&[chunk_pos.x, chunk_pos.y]),
+                    usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+                });
+
+            let input_texture_size_buffer =
+                render_device.create_buffer_with_data(&BufferInitDescriptor {
+                    label: Some("input_texture_size_buffer"),
+                    contents: bytemuck::cast_slice(&[
+                        pixel_map.chunk_size.x,
+                        pixel_map.chunk_size.y,
+                    ]),
+                    usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+                });
+
+            for texes_chunk in chunk_texes.chunks_exact(8) {
+                let chunk_images: Vec<_> = texes_chunk.iter().map(|x| x.image.clone()).collect();
+                let chunk_images_positions: Vec<_> = texes_chunk
+                    .iter()
+                    .map(|x| [x.position.x, x.position.y])
+                    .collect();
+                let source_texture_pos_buffer =
+                    render_device.create_buffer_with_data(&BufferInitDescriptor {
+                        label: Some("source_texture_pos_buffer"),
+                        contents: bytemuck::cast_slice(&chunk_images_positions),
+                        usage: BufferUsages::STORAGE,
+                    });
+                let chunk_images_sizes: Vec<_> = chunk_images
+                    .iter()
+                    .map(|x| {
+                        let size = gpu_images.get(x.id()).expect("expected valid").size;
+                        [size.x, size.y]
+                    })
+                    .collect();
+                let source_texture_size_buffer =
+                    render_device.create_buffer_with_data(&BufferInitDescriptor {
+                        label: Some("source_texture_size_buffer"),
+                        contents: bytemuck::cast_slice(&chunk_images_sizes),
+                        usage: BufferUsages::STORAGE,
+                    });
+
+                let view = gpu_images
+                    .get(&pixel_map.image_data[pixel_map.positions[chunk_pos]])
+                    .unwrap();
+                let textures = chunk_images
+                    .iter()
+                    .map(|tex| &gpu_images.get(tex).unwrap().texture_view)
+                    .collect::<Vec<_>>();
+                let layout = PixelMapShaderLayoutInput::new(&render_device).bind_group_layout;
+                let binds = render_device.create_bind_group(
+                    "pixel map bind group",
+                    &layout,
+                    &BindGroupEntries::sequential((
+                        view.texture_view.into_binding(),
+                        input_texture_pos_buffer.as_entire_binding(),
+                        input_texture_size_buffer.as_entire_binding(),
+                        source_texture_pos_buffer.as_entire_binding(),
+                        source_texture_size_buffer.as_entire_binding(),
+                        textures[0].into_binding(),
+                        textures[1].into_binding(),
+                        textures[2].into_binding(),
+                        textures[3].into_binding(),
+                        textures[4].into_binding(),
+                        textures[5].into_binding(),
+                        textures[6].into_binding(),
+                        textures[7].into_binding(),
+                    )),
+                );
+                if !render_data.0.contains_key(chunk_pos) {
+                    render_data.0.insert(*chunk_pos, vec![binds]);
+                } else {
+                    render_data.0.get_mut(chunk_pos).unwrap().push(binds);
+                }
+                if !render_data.1.contains_key(chunk_pos) {
+                    let shader = asset_server.load("shaders/place_tex.wgsl");
+                    let pipeline =
+                        pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
+                            label: None,
+                            layout: vec![layout.clone()],
+                            push_constant_ranges: Vec::new(),
+                            shader: shader.clone(),
+                            shader_defs: vec![],
+                            entry_point: Cow::from("main"),
+                        });
+                    render_data.1.insert(*chunk_pos, pipeline);
+                }
+            }
+        }
+    }
+}
+
+fn apply_ops(
+    mut render_data: ResMut<RenderData>,
+    render_device: Res<RenderDevice>,
+    pipeline_cache: Res<PipelineCache>,
+    render_queue: Res<RenderQueue>,
+) {
+    for (chunk_pos, bind_groups) in render_data.0.iter() {
+        let pipeline_id = *render_data.1.get(chunk_pos).unwrap();
+        println!(
+            "{:#?}",
+            pipeline_cache.get_compute_pipeline_state(pipeline_id)
+        );
+        pipeline_cache.get_compute_pipeline_state(pipeline_id);
+        if let CachedPipelineState::Ok(_) = pipeline_cache.get_compute_pipeline_state(pipeline_id) {
+            let pipeline = pipeline_cache.get_compute_pipeline(pipeline_id).unwrap();
+            for binds in bind_groups.iter() {
+                let mut command_encoder =
+                    render_device.create_command_encoder(&CommandEncoderDescriptor::default());
+                {
+                    let mut pass =
+                        command_encoder.begin_compute_pass(&ComputePassDescriptor::default());
+                    pass.set_pipeline(pipeline);
+                    pass.set_bind_group(0, &binds, &[]);
+                    pass.dispatch_workgroups(8, 8, 1);
+                }
+                render_queue.submit(once(command_encoder.finish()));
+                render_device.poll(wgpu::MaintainBase::Wait);
+            }
+        }
+    }
+    render_data.1.clear();
+    render_data.0.clear();
 }
 
 pub struct PixelMapShaderLayoutInput {
@@ -202,7 +439,7 @@ impl PixelMapShaderLayoutInput {
                     binding: 3,
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
+                        ty: BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
@@ -212,7 +449,7 @@ impl PixelMapShaderLayoutInput {
                     binding: 4,
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
+                        ty: BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
