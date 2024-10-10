@@ -1,4 +1,5 @@
-mod pixel_map_cpu;
+mod chunk_position;
+mod pixel_map;
 extern crate bevy;
 extern crate bevy_inspector_egui;
 extern crate line_drawing;
@@ -7,7 +8,8 @@ use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::{prelude::*, render::camera::ScalingMode};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use line_drawing::Bresenham;
-use pixel_map_cpu::{PixelMap, PixelMaps};
+use pixel_map::PixelMap;
+
 use rand::random;
 const WINDOW_SIZE: UVec2 = UVec2 { x: 426, y: 240 }; // 240p
 
@@ -15,11 +17,9 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_systems(Startup, setup)
-        .add_systems(
-            Update,
-            (place_uv_test.after(place_line_test), place_line_test),
-        )
-        .add_plugins(PixelMaps)
+        .add_systems(Update, place_uv_test)
+        .add_systems(Update, place_line_test)
+        .add_systems(Update, get_pixel_test)
         .add_plugins(LogDiagnosticsPlugin::default())
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
         .add_plugins(WorldInspectorPlugin::new())
@@ -50,12 +50,20 @@ fn setup(mut commands: Commands) {
             ..Default::default()
         })
         .id();
-    commands
-        .entity(id)
-        .insert(PixelMap::new(UVec2 { x: 100, y: 100 }, id, None, None));
+    commands.entity(id).insert(PixelMap::new(
+        UVec2 { x: 100, y: 100 },
+        id,
+        None,
+        None,
+        None,
+    ));
 }
 
-fn place_uv_test(mut query: Query<&mut PixelMap>) {
+fn place_uv_test(
+    mut query: Query<&mut PixelMap>,
+    mut textures: ResMut<Assets<Image>>,
+    mut commands: Commands,
+) {
     for mut pixel_map in query.iter_mut() {
         let mut pixels = vec![];
         let mut positions = vec![];
@@ -70,11 +78,23 @@ fn place_uv_test(mut query: Query<&mut PixelMap>) {
                 });
             }
         }
-        pixel_map.set_pixels(positions, pixels).unwrap();
+        pixel_map.set_pixels((positions, pixels), &mut commands, &mut textures);
     }
 }
 
-fn place_line_test(mut query: Query<&mut PixelMap>) {
+fn get_pixel_test(query: Query<&PixelMap>, textures: Res<Assets<Image>>) {
+    for pixel_map in query.iter() {
+        let _pixel = pixel_map.get_pixels(&vec![IVec2 { x: 0, y: 0 }], &textures);
+        println!("{:#?}", _pixel);
+    }
+}
+
+fn place_line_test(
+    mut query: Query<&mut PixelMap>,
+    mut textures: ResMut<Assets<Image>>,
+    mut commands: Commands,
+) {
+    let mut count = 0;
     for mut pixel_map in query.iter_mut() {
         for _ in 0..100 {
             let color: [u8; 4] = [
@@ -90,9 +110,13 @@ fn place_line_test(mut query: Query<&mut PixelMap>) {
             .map(|(x, y)| IVec2 { x, y })
             .collect();
             let line_len = line.len();
-            pixel_map
-                .set_pixels(line, std::iter::repeat(color).take(line_len).collect())
-                .unwrap();
+            count += line_len;
+            pixel_map.set_pixels(
+                (line, std::iter::repeat(color).take(line_len).collect()),
+                &mut commands,
+                &mut textures,
+            );
         }
     }
+    println!("{}", count);
 }
