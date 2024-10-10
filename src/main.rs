@@ -1,44 +1,52 @@
-//! Displays a single [`Sprite`], created from an image.
 mod chunk_position;
 mod pixel_map;
-use bevy::{prelude::*, render::camera::ScalingMode, utils::HashMap};
-use bevy_inspector_egui::WorldInspectorPlugin;
+extern crate bevy;
+extern crate bevy_inspector_egui;
+extern crate line_drawing;
+extern crate rand;
+use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
+use bevy::{prelude::*, render::camera::ScalingMode};
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use line_drawing::Bresenham;
 use pixel_map::PixelMap;
 
+use rand::random;
 const WINDOW_SIZE: UVec2 = UVec2 { x: 426, y: 240 }; // 240p
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_startup_system(setup)
-        .add_system(place_uv_test)
-        .add_system(place_line_test)
-        .add_system(get_pixel_test)
-        .add_plugin(WorldInspectorPlugin::new())
+        .add_systems(Startup, setup)
+        .add_systems(Update, place_uv_test)
+        .add_systems(Update, place_line_test)
+        .add_systems(Update, get_pixel_test)
+        .add_plugins(LogDiagnosticsPlugin::default())
+        .add_plugins(FrameTimeDiagnosticsPlugin::default())
+        .add_plugins(WorldInspectorPlugin::new())
         .run();
 }
 
 fn setup(mut commands: Commands) {
-    let half = WINDOW_SIZE / 2;
-    commands.spawn_bundle(Camera2dBundle {
+    commands.spawn(Camera2dBundle {
         projection: OrthographicProjection {
-            scaling_mode: ScalingMode::None,
-            bottom: -(half.y as f32),
-            top: half.y as f32,
-            left: -(half.x as f32),
-            right: half.x as f32,
-
+            scaling_mode: ScalingMode::Fixed {
+                width: WINDOW_SIZE[0] as f32 * 3.0,
+                height: WINDOW_SIZE[1] as f32 * 3.0,
+            },
             ..Default::default()
         },
+        transform: Transform::from_translation(Vec3 {
+            x: 0.0,
+            y: 0.0,
+            z: 10.0,
+        }),
         ..Default::default()
     });
     let id = commands
-        .spawn()
-        .insert_bundle(TransformBundle {
+        .spawn(TransformBundle {
             ..Default::default()
         })
-        .insert_bundle(VisibilityBundle {
+        .insert(VisibilityBundle {
             ..Default::default()
         })
         .id();
@@ -57,21 +65,27 @@ fn place_uv_test(
     mut commands: Commands,
 ) {
     for mut pixel_map in query.iter_mut() {
-        let mut pixels = HashMap::new();
+        let mut pixels = vec![];
+        let mut positions = vec![];
 
         for x in 0..255 {
             for y in 0..255 {
                 let color: [u8; 4] = [x as u8, y as u8, 0, 255];
-                pixels.insert(
-                    IVec2 {
-                        x: x - 127,
-                        y: y - 127,
-                    },
-                    color,
-                );
+                pixels.push(color);
+                positions.push(IVec2 {
+                    x: x - 127,
+                    y: y - 127,
+                });
             }
         }
-        pixel_map.set_pixels(pixels, &mut commands, &mut textures);
+        pixel_map.set_pixels((positions, pixels), &mut commands, &mut textures);
+    }
+}
+
+fn get_pixel_test(query: Query<&PixelMap>, textures: Res<Assets<Image>>) {
+    for pixel_map in query.iter() {
+        let _pixel = pixel_map.get_pixels(&vec![IVec2 { x: 0, y: 0 }], &textures);
+        println!("{:#?}", _pixel);
     }
 }
 
@@ -80,18 +94,29 @@ fn place_line_test(
     mut textures: ResMut<Assets<Image>>,
     mut commands: Commands,
 ) {
-    let color: [u8; 4] = [255, 255, 255, 255];
+    let mut count = 0;
     for mut pixel_map in query.iter_mut() {
-        let pixels = HashMap::from_iter(
-            Bresenham::new((-100, -100), (50, 75)).map(|(x, y)| (IVec2 { x: x, y: y }, color)),
-        );
-        pixel_map.set_pixels(pixels, &mut commands, &mut textures);
+        for _ in 0..100 {
+            let color: [u8; 4] = [
+                random::<u8>(),
+                random::<u8>(),
+                random::<u8>(),
+                random::<u8>(),
+            ];
+            let line: Vec<IVec2> = Bresenham::new(
+                (random::<i8>() as i32 - 1048, random::<i8>() as i32 - 1048),
+                (random::<i8>() as i32 + 1048, random::<i8>() as i32 + 1048),
+            )
+            .map(|(x, y)| IVec2 { x, y })
+            .collect();
+            let line_len = line.len();
+            count += line_len;
+            pixel_map.set_pixels(
+                (line, std::iter::repeat(color).take(line_len).collect()),
+                &mut commands,
+                &mut textures,
+            );
+        }
     }
-}
-
-fn get_pixel_test(query: Query<&PixelMap>, textures: Res<Assets<Image>>) {
-    for pixel_map in query.iter() {
-        let _pixel = pixel_map.get_pixels(&vec![IVec2 { x: 0, y: 0 }], &textures);
-        // println!("{:#?}", _pixel)
-    }
+    println!("{}", count);
 }
