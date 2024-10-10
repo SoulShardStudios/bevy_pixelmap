@@ -15,7 +15,10 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_systems(Startup, setup)
-        .add_systems(Update, (place_uv_test, place_line_test))
+        .add_systems(
+            Update,
+            (place_uv_test.after(place_line_test), place_line_test),
+        )
         .add_plugins(PixelMaps)
         .add_plugins(LogDiagnosticsPlugin::default())
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
@@ -53,22 +56,22 @@ fn setup(mut commands: Commands) {
 }
 
 fn place_uv_test(mut query: Query<&mut PixelMap>) {
-    // for mut pixel_map in query.iter_mut() {
-    //     let mut pixels = vec![];
-    //     let mut positions = vec![];
-    //
-    //     for x in 0..255 {
-    //         for y in 0..255 {
-    //             let color: [u8; 4] = [x as u8, y as u8, 0, 255];
-    //             pixels.push(color);
-    //             positions.push(IVec2 {
-    //                 x: x - 127,
-    //                 y: y - 127,
-    //             });
-    //         }
-    //     }
-    //     pixel_map.set_pixels(positions, pixels).unwrap();
-    // }
+    for mut pixel_map in query.iter_mut() {
+        let mut pixels = vec![];
+        let mut positions = vec![];
+
+        for x in 0..255 {
+            for y in 0..255 {
+                let color: [u8; 4] = [x as u8, y as u8, 0, 255];
+                pixels.push(color);
+                positions.push(IVec2 {
+                    x: x - 127,
+                    y: y - 127,
+                });
+            }
+        }
+        pixel_map.set_pixels(positions, pixels).unwrap();
+    }
 }
 
 fn place_line_test(mut query: Query<&mut PixelMap>) {

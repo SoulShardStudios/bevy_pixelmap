@@ -1,7 +1,6 @@
 [package]
 name = "bevy_pixels"
 version = "0.1.0"
-rust-version = "1.76"
 resolver = "2"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -15,8 +14,7 @@ opt-level = 1
 opt-level = 3
 
 [dependencies]
-bevy = "^0.13"
-bevy-inspector-egui = "^0.23"
+bevy = "^0.14"
+bevy-inspector-egui = "^0.26"
 line_drawing = "1.0.0"
 rand = "0.8.5"
-
