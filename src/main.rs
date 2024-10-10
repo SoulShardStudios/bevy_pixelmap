@@ -78,13 +78,13 @@ fn place_uv_test(
                 });
             }
         }
-        pixel_map.set_pixels((positions, pixels), &mut commands, &mut textures);
+        pixel_map.set_pixels_cpu((positions, pixels), &mut commands, &mut textures);
     }
 }
 
 fn get_pixel_test(query: Query<&PixelMap>, textures: Res<Assets<Image>>) {
     for pixel_map in query.iter() {
-        let _pixel = pixel_map.get_pixels(&vec![IVec2 { x: 0, y: 0 }], &textures);
+        let _pixel = pixel_map.get_pixels_cpu(&vec![IVec2 { x: 0, y: 0 }], &textures);
         println!("{:#?}", _pixel);
     }
 }
@@ -111,7 +111,7 @@ fn place_line_test(
             .collect();
             let line_len = line.len();
             count += line_len;
-            pixel_map.set_pixels(
+            pixel_map.set_pixels_cpu(
                 (line, std::iter::repeat(color).take(line_len).collect()),
                 &mut commands,
                 &mut textures,

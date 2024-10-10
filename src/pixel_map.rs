@@ -3,9 +3,11 @@ use std::convert::TryInto;
 use bevy::{
     prelude::*,
     render::{
+        extract_component::{ExtractComponent, ExtractComponentPlugin},
         render_asset::RenderAssetUsages,
-        render_resource::{Extent3d, TextureDimension, TextureFormat},
+        render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages},
         texture::ImageSampler,
+        Render, RenderApp, RenderSet,
     },
     utils::HashMap,
 };
@@ -15,14 +17,15 @@ use crate::chunk_position::{get_chunk_index_i, get_chunk_outer_i};
 #[derive(Component)]
 pub struct PixelChunk;
 
-#[derive(Component)]
+#[derive(Component, ExtractComponent, Clone)]
 pub struct PixelMap {
     chunk_size: UVec2,
     img_data: Vec<Handle<Image>>,
     positions: HashMap<IVec2, usize>,
-    pub empty_texture: Image,
+    empty_texture: Image,
     root_entity: Entity,
     default_chunk_color: [u8; 4],
+    texture_queue: Vec<Handle<Image>>,
 }
 
 impl PixelMap {
@@ -47,6 +50,9 @@ impl PixelMap {
                 RenderAssetUsages::all(),
             )
         });
+        empty.texture_descriptor.usage = TextureUsages::COPY_DST
+            | TextureUsages::STORAGE_BINDING
+            | TextureUsages::TEXTURE_BINDING;
         empty.sampler = sampler.unwrap_or_else(ImageSampler::nearest);
         PixelMap {
             chunk_size,
@@ -55,10 +61,11 @@ impl PixelMap {
             empty_texture: empty,
             root_entity,
             default_chunk_color: color,
+            texture_queue: vec![],
         }
     }
 
-    pub fn get_pixels(
+    pub fn get_pixels_cpu(
         &self,
         world_positions: &[IVec2],
         textures: &Res<Assets<Image>>,
@@ -111,7 +118,7 @@ impl PixelMap {
         self.img_data.push(tex_handle);
     }
 
-    pub fn set_pixels(
+    pub fn set_pixels_cpu(
         &mut self,
         pixels: (Vec<IVec2>, Vec<[u8; 4]>),
         commands: &mut Commands,
@@ -129,5 +136,20 @@ impl PixelMap {
                 textures.get_mut(&self.img_data[pos]).unwrap().data[ind..ind + 4]
                     .copy_from_slice(&color);
             });
+    }
+
+    pub fn set_pixels_gpu(textures: &Vec<Handle<Image>>) {}
+}
+
+struct PixelMapGpuComputePlugin;
+
+impl Plugin for PixelMapGpuComputePlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(ExtractComponentPlugin::<PixelMap>::default());
+        let render_app = app.sub_app_mut(RenderApp);
+        render_app
+            .add_systems(Render, prepare_binds.in_set(RenderSet::PrepareBindGroups))
+            .add_systems(Render, apply_ops)
+            .insert_resource(RenderDataResource(HashMap::new()));
     }
 }
