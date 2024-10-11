@@ -188,7 +188,7 @@ pub struct PixelMapGpuComputePlugin;
 
 #[derive(Resource)]
 struct RenderData(
-    HashMap<IVec2, Vec<BindGroup>>,
+    HashMap<IVec2, Vec<(BindGroup, UVec2)>>,
     HashMap<IVec2, CachedComputePipelineId>,
 );
 
@@ -210,16 +210,13 @@ trait Points {
 
 impl Points for IRect {
     fn points(&self) -> Vec<IVec2> {
-        let mut points =
-            vec![IVec2 { x: 0, y: 0 }; (self.width().abs() * self.height().abs()) as usize];
-        for mut x in self.min.x..self.max.x {
-            x -= self.min.x;
-            for mut y in self.min.y..self.max.y {
-                y -= self.min.y;
-                points[(x * y) as usize] = IVec2 { x, y }
+        let mut points = Vec::with_capacity((self.width().abs() * self.height().abs()) as usize);
+        for x in self.min.x..self.max.x {
+            for y in self.min.y..self.max.y {
+                points.push(IVec2 { x, y });
             }
         }
-        return points;
+        points
     }
 }
 
@@ -240,6 +237,7 @@ pub fn prepare_chunks(
                 max: c_pos_end,
             }
             .points();
+
             for position in points.iter() {
                 if texture_to_chunk_posses.contains_key(position) {
                     texture_to_chunk_posses
@@ -259,7 +257,62 @@ pub fn prepare_chunks(
     }
 }
 
-pub fn prepare_binds(
+struct RepeatRemainderChunks<I: Iterator> {
+    iter: I,
+    chunk_size: usize,
+    buffer: Vec<I::Item>,
+}
+
+impl<I> RepeatRemainderChunks<I>
+where
+    I: Iterator,
+{
+    fn new(iter: I, chunk_size: usize) -> Self {
+        RepeatRemainderChunks {
+            iter,
+            chunk_size,
+            buffer: Vec::with_capacity(chunk_size),
+        }
+    }
+}
+
+impl<I> Iterator for RepeatRemainderChunks<I>
+where
+    I: Iterator,
+    I::Item: Clone,
+{
+    type Item = Vec<I::Item>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.buffer.clear();
+
+        // Collect the chunk
+        while self.buffer.len() < self.chunk_size {
+            match self.iter.next() {
+                Some(item) => self.buffer.push(item),
+                None => break,
+            }
+        }
+
+        // If the buffer is still empty, return None (no more items)
+        if self.buffer.is_empty() {
+            None
+        } else {
+            // If the buffer has fewer items than the chunk size, fill the rest with the last item
+            while self.buffer.len() < self.chunk_size {
+                if let Some(last_item) = self.buffer.last() {
+                    self.buffer.push(last_item.clone());
+                } else {
+                    break; // This case happens if the iterator was completely empty
+                }
+            }
+
+            Some(self.buffer.clone()) // Return a clone of the buffer as the chunk
+        }
+    }
+}
+
+fn prepare_binds(
     pixel_map_query: Query<&PixelMap>,
     render_device: Res<RenderDevice>,
     gpu_images: Res<RenderAssets<GpuImage>>,
@@ -272,7 +325,10 @@ pub fn prepare_binds(
             let input_texture_pos_buffer =
                 render_device.create_buffer_with_data(&BufferInitDescriptor {
                     label: Some("input_texture_pos_buffer"),
-                    contents: bytemuck::cast_slice(&[chunk_pos.x, chunk_pos.y]),
+                    contents: bytemuck::cast_slice(&[
+                        chunk_pos.x * pixel_map.chunk_size.x as i32,
+                        chunk_pos.y * pixel_map.chunk_size.y as i32,
+                    ]),
                     usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
                 });
 
@@ -286,7 +342,7 @@ pub fn prepare_binds(
                     usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
                 });
 
-            for texes_chunk in chunk_texes.chunks_exact(8) {
+            for texes_chunk in RepeatRemainderChunks::new(chunk_texes.into_iter(), 8) {
                 let chunk_images: Vec<_> = texes_chunk.iter().map(|x| x.image.clone()).collect();
                 let chunk_images_positions: Vec<_> = texes_chunk
                     .iter()
@@ -311,7 +367,6 @@ pub fn prepare_binds(
                         contents: bytemuck::cast_slice(&chunk_images_sizes),
                         usage: BufferUsages::STORAGE,
                     });
-
                 let view = gpu_images
                     .get(&pixel_map.image_data[pixel_map.positions[chunk_pos]])
                     .unwrap();
@@ -319,6 +374,7 @@ pub fn prepare_binds(
                     .iter()
                     .map(|tex| &gpu_images.get(tex).unwrap().texture_view)
                     .collect::<Vec<_>>();
+
                 let layout = PixelMapShaderLayoutInput::new(&render_device).bind_group_layout;
                 let binds = render_device.create_bind_group(
                     "pixel map bind group",
@@ -340,9 +396,15 @@ pub fn prepare_binds(
                     )),
                 );
                 if !render_data.0.contains_key(chunk_pos) {
-                    render_data.0.insert(*chunk_pos, vec![binds]);
+                    render_data
+                        .0
+                        .insert(*chunk_pos, vec![(binds, pixel_map.chunk_size)]);
                 } else {
-                    render_data.0.get_mut(chunk_pos).unwrap().push(binds);
+                    render_data
+                        .0
+                        .get_mut(chunk_pos)
+                        .unwrap()
+                        .push((binds, pixel_map.chunk_size));
                 }
                 if !render_data.1.contains_key(chunk_pos) {
                     let shader = asset_server.load("shaders/place_tex.wgsl");
@@ -355,7 +417,7 @@ pub fn prepare_binds(
                             shader_defs: vec![],
                             entry_point: Cow::from("main"),
                         });
-                    render_data.1.insert(*chunk_pos, pipeline);
+                    assert!(render_data.1.insert(*chunk_pos, pipeline).is_none());
                 }
             }
         }
@@ -370,10 +432,6 @@ fn apply_ops(
 ) {
     for (chunk_pos, bind_groups) in render_data.0.iter() {
         let pipeline_id = *render_data.1.get(chunk_pos).unwrap();
-        println!(
-            "{:#?}",
-            pipeline_cache.get_compute_pipeline_state(pipeline_id)
-        );
         pipeline_cache.get_compute_pipeline_state(pipeline_id);
         if let CachedPipelineState::Ok(_) = pipeline_cache.get_compute_pipeline_state(pipeline_id) {
             let pipeline = pipeline_cache.get_compute_pipeline(pipeline_id).unwrap();
@@ -384,15 +442,14 @@ fn apply_ops(
                     let mut pass =
                         command_encoder.begin_compute_pass(&ComputePassDescriptor::default());
                     pass.set_pipeline(pipeline);
-                    pass.set_bind_group(0, &binds, &[]);
-                    pass.dispatch_workgroups(8, 8, 1);
+                    pass.set_bind_group(0, &binds.0, &[]);
+                    pass.dispatch_workgroups(binds.1.x / 8, binds.1.y / 8, 1);
                 }
                 render_queue.submit(once(command_encoder.finish()));
                 render_device.poll(wgpu::MaintainBase::Wait);
             }
         }
     }
-    render_data.1.clear();
     render_data.0.clear();
 }
 
