@@ -435,7 +435,6 @@ fn apply_ops(
         if let CachedPipelineState::Ok(_) = pipeline_cache.get_compute_pipeline_state(pipeline_id) {
             let pipeline = pipeline_cache.get_compute_pipeline(pipeline_id).unwrap();
             for binds in bind_groups.iter() {
-                println!("{}", chunk_pos);
                 let mut command_encoder =
                     render_device.create_command_encoder(&CommandEncoderDescriptor::default());
                 {
