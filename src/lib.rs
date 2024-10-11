@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::convert::TryInto;
+use std::path::PathBuf;
 
 use bevy::render::render_resource::{
     CachedComputePipelineId, CachedPipelineState, CommandEncoderDescriptor, ComputePassDescriptor,
@@ -23,9 +23,34 @@ use bevy::{
     },
     utils::HashMap,
 };
+use lazy_static::lazy_static;
 use std::iter::once;
+use std::path::Path;
 
-use crate::chunk_position::{get_chunk_index_i, get_chunk_outer_i};
+lazy_static! {
+    static ref ASSETS_PATH: PathBuf = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("assets")
+        .join("shaders");
+}
+
+fn get_chunk_inner_i(position: IVec2, chunk_size: UVec2) -> UVec2 {
+    UVec2 {
+        x: position.x.rem_euclid(chunk_size.x as i32) as u32,
+        y: position.y.rem_euclid(chunk_size.y as i32) as u32,
+    }
+}
+
+fn get_chunk_index_i(position: IVec2, chunk_size: UVec2) -> usize {
+    let inner = get_chunk_inner_i(position, chunk_size);
+    return (((chunk_size.y - inner.y - 1) * chunk_size.x) + inner.x) as usize;
+}
+
+fn get_chunk_outer_i(position: IVec2, chunk_size: UVec2) -> IVec2 {
+    IVec2 {
+        x: (position.x as f64 / chunk_size.x as f64).floor() as i32,
+        y: (position.y as f64 / chunk_size.y as f64).floor() as i32,
+    }
+}
 
 #[derive(Component)]
 pub struct PixelChunk;
@@ -140,26 +165,6 @@ impl PixelMap {
         self.image_data.push(tex_handle);
     }
 
-    pub fn set_pixels_cpu(
-        &mut self,
-        pixels: (Vec<IVec2>, Vec<[u8; 4]>),
-        commands: &mut Commands,
-        textures: &mut ResMut<Assets<Image>>,
-    ) {
-        pixels
-            .0
-            .iter()
-            .zip(pixels.1.iter())
-            .for_each(|(&position, &color)| {
-                let chunk_pos = get_chunk_outer_i(position, self.chunk_size);
-                self.add_chunk(chunk_pos, commands, textures);
-                let pos = self.positions[&chunk_pos];
-                let ind = get_chunk_index_i(position, self.chunk_size) * 4;
-                textures.get_mut(&self.image_data[pos]).unwrap().data[ind..ind + 4]
-                    .copy_from_slice(&color);
-            });
-    }
-
     pub fn set_pixels_gpu(
         &mut self,
         textures: Vec<PixelPositionedTexture>,
@@ -220,7 +225,7 @@ impl Points for IRect {
     }
 }
 
-pub fn prepare_chunks(
+fn prepare_chunks(
     mut pixel_map_query: Query<&mut PixelMap>,
     mut commands: Commands,
     mut textures: ResMut<Assets<Image>>,
@@ -257,58 +262,6 @@ pub fn prepare_chunks(
     }
 }
 
-struct RepeatRemainderChunks<I: Iterator> {
-    iter: I,
-    chunk_size: usize,
-    buffer: Vec<I::Item>,
-}
-
-impl<I> RepeatRemainderChunks<I>
-where
-    I: Iterator,
-{
-    fn new(iter: I, chunk_size: usize) -> Self {
-        RepeatRemainderChunks {
-            iter,
-            chunk_size,
-            buffer: Vec::with_capacity(chunk_size),
-        }
-    }
-}
-
-impl<I> Iterator for RepeatRemainderChunks<I>
-where
-    I: Iterator,
-    I::Item: Clone,
-{
-    type Item = Vec<I::Item>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.buffer.clear();
-
-        while self.buffer.len() < self.chunk_size {
-            match self.iter.next() {
-                Some(item) => self.buffer.push(item),
-                None => break,
-            }
-        }
-
-        if self.buffer.is_empty() {
-            None
-        } else {
-            while self.buffer.len() < self.chunk_size {
-                if let Some(last_item) = self.buffer.last() {
-                    self.buffer.push(last_item.clone());
-                } else {
-                    break;
-                }
-            }
-
-            Some(self.buffer.clone())
-        }
-    }
-}
-
 fn prepare_binds(
     pixel_map_query: Query<&PixelMap>,
     render_device: Res<RenderDevice>,
@@ -339,57 +292,38 @@ fn prepare_binds(
                     usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
                 });
 
-            for texes_chunk in RepeatRemainderChunks::new(chunk_texes.into_iter(), 8) {
-                let chunk_images: Vec<_> = texes_chunk.iter().map(|x| x.image.clone()).collect();
-                let chunk_images_positions: Vec<_> = texes_chunk
-                    .iter()
-                    .map(|x| [x.position.x, x.position.y])
-                    .collect();
+            for texes_chunk in chunk_texes.into_iter() {
                 let source_texture_pos_buffer =
                     render_device.create_buffer_with_data(&BufferInitDescriptor {
                         label: Some("source_texture_pos_buffer"),
-                        contents: bytemuck::cast_slice(&chunk_images_positions),
-                        usage: BufferUsages::STORAGE,
+                        contents: bytemuck::cast_slice(&[
+                            texes_chunk.position.x,
+                            texes_chunk.position.y,
+                        ]),
+                        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
                     });
-                let chunk_images_sizes: Vec<_> = chunk_images
-                    .iter()
-                    .map(|x| {
-                        let size = gpu_images.get(x.id()).expect("expected valid").size;
-                        [size.x, size.y]
-                    })
-                    .collect();
                 let source_texture_size_buffer =
                     render_device.create_buffer_with_data(&BufferInitDescriptor {
                         label: Some("source_texture_size_buffer"),
-                        contents: bytemuck::cast_slice(&chunk_images_sizes),
-                        usage: BufferUsages::STORAGE,
+                        contents: bytemuck::cast_slice(&[texes_chunk.size.x, texes_chunk.size.y]),
+                        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
                     });
-                let view = gpu_images
+                let input_view = gpu_images
                     .get(&pixel_map.image_data[pixel_map.positions[chunk_pos]])
                     .unwrap();
-                let textures = chunk_images
-                    .iter()
-                    .map(|tex| &gpu_images.get(tex).unwrap().texture_view)
-                    .collect::<Vec<_>>();
+                let source_view = &gpu_images.get(texes_chunk.image.id()).unwrap().texture_view;
 
                 let layout = PixelMapShaderLayoutInput::new(&render_device).bind_group_layout;
                 let binds = render_device.create_bind_group(
                     "pixel map bind group",
                     &layout,
                     &BindGroupEntries::sequential((
-                        view.texture_view.into_binding(),
+                        input_view.texture_view.into_binding(),
                         input_texture_pos_buffer.as_entire_binding(),
                         input_texture_size_buffer.as_entire_binding(),
                         source_texture_pos_buffer.as_entire_binding(),
                         source_texture_size_buffer.as_entire_binding(),
-                        textures[0].into_binding(),
-                        textures[1].into_binding(),
-                        textures[2].into_binding(),
-                        textures[3].into_binding(),
-                        textures[4].into_binding(),
-                        textures[5].into_binding(),
-                        textures[6].into_binding(),
-                        textures[7].into_binding(),
+                        source_view.into_binding(),
                     )),
                 );
                 if !render_data.0.contains_key(chunk_pos) {
@@ -404,7 +338,7 @@ fn prepare_binds(
                         .push((binds, pixel_map.chunk_size));
                 }
                 if !render_data.1.contains_key(chunk_pos) {
-                    let shader = asset_server.load("shaders/place_tex.wgsl");
+                    let shader = asset_server.load(ASSETS_PATH.join("place_tex.wgsl"));
                     let pipeline =
                         pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
                             label: None,
@@ -450,7 +384,7 @@ fn apply_ops(
     render_data.0.clear();
 }
 
-pub struct PixelMapShaderLayoutInput {
+struct PixelMapShaderLayoutInput {
     pub bind_group_layout: BindGroupLayout,
 }
 
@@ -493,7 +427,7 @@ impl PixelMapShaderLayoutInput {
                     binding: 3,
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: true },
+                        ty: BufferBindingType::Uniform,
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
@@ -503,7 +437,7 @@ impl PixelMapShaderLayoutInput {
                     binding: 4,
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: true },
+                        ty: BufferBindingType::Uniform,
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
@@ -511,76 +445,6 @@ impl PixelMapShaderLayoutInput {
                 },
                 BindGroupLayoutEntry {
                     binding: 5,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::StorageTexture {
-                        access: StorageTextureAccess::ReadOnly,
-                        format: TextureFormat::Rgba8Unorm,
-                        view_dimension: TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 6,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::StorageTexture {
-                        access: StorageTextureAccess::ReadOnly,
-                        format: TextureFormat::Rgba8Unorm,
-                        view_dimension: TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 7,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::StorageTexture {
-                        access: StorageTextureAccess::ReadOnly,
-                        format: TextureFormat::Rgba8Unorm,
-                        view_dimension: TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 8,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::StorageTexture {
-                        access: StorageTextureAccess::ReadOnly,
-                        format: TextureFormat::Rgba8Unorm,
-                        view_dimension: TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 9,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::StorageTexture {
-                        access: StorageTextureAccess::ReadOnly,
-                        format: TextureFormat::Rgba8Unorm,
-                        view_dimension: TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 10,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::StorageTexture {
-                        access: StorageTextureAccess::ReadOnly,
-                        format: TextureFormat::Rgba8Unorm,
-                        view_dimension: TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 11,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::StorageTexture {
-                        access: StorageTextureAccess::ReadOnly,
-                        format: TextureFormat::Rgba8Unorm,
-                        view_dimension: TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 12,
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::StorageTexture {
                         access: StorageTextureAccess::ReadOnly,
