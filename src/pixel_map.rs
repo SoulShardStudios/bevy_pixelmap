@@ -233,8 +233,8 @@ pub fn prepare_chunks(
             let c_pos_end =
                 get_chunk_outer_i(tex.position + tex.size.as_ivec2(), pixel_map.chunk_size);
             let points = IRect {
-                min: c_pos_start,
-                max: c_pos_end,
+                min: c_pos_start - IVec2 { x: 1, y: 1 },
+                max: c_pos_end + IVec2 { x: 1, y: 1 }, // padding necessary for properly updating all chunks
             }
             .points();
 
@@ -286,7 +286,6 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         self.buffer.clear();
 
-        // Collect the chunk
         while self.buffer.len() < self.chunk_size {
             match self.iter.next() {
                 Some(item) => self.buffer.push(item),
@@ -294,20 +293,18 @@ where
             }
         }
 
-        // If the buffer is still empty, return None (no more items)
         if self.buffer.is_empty() {
             None
         } else {
-            // If the buffer has fewer items than the chunk size, fill the rest with the last item
             while self.buffer.len() < self.chunk_size {
                 if let Some(last_item) = self.buffer.last() {
                     self.buffer.push(last_item.clone());
                 } else {
-                    break; // This case happens if the iterator was completely empty
+                    break;
                 }
             }
 
-            Some(self.buffer.clone()) // Return a clone of the buffer as the chunk
+            Some(self.buffer.clone())
         }
     }
 }
@@ -444,6 +441,7 @@ fn apply_ops(
                     pass.set_bind_group(0, &binds.0, &[]);
                     pass.dispatch_workgroups(binds.1.x / 8, binds.1.y / 8, 1);
                 }
+
                 render_queue.submit(once(command_encoder.finish()));
                 render_device.poll(wgpu::MaintainBase::Wait);
             }

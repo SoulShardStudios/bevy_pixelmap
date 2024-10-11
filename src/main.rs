@@ -2,7 +2,6 @@ mod chunk_position;
 mod pixel_map;
 extern crate bevy;
 extern crate bevy_inspector_egui;
-extern crate line_drawing;
 extern crate rand;
 use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::{prelude::*, render::camera::ScalingMode};
@@ -17,9 +16,9 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_systems(Startup, setup)
-        //        .add_systems(Update, place_uv_test_cpu)
-        .add_systems(Update, place_line_test_cpu)
-        //        .add_systems(Update, get_pixel_test_cpu)
+        // .add_systems(Update, place_uv_test_cpu)
+        // .add_systems(Update, place_line_test_cpu)
+        // .add_systems(Update, get_pixel_test_cpu)
         .add_systems(Update, place_tex_test_gpu)
         .add_plugins(PixelMapGpuComputePlugin)
         .add_plugins(LogDiagnosticsPlugin::default())
@@ -56,7 +55,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         })
         .id();
     commands.entity(id).insert(PixelMap::new(
-        UVec2 { x: 200, y: 200 },
+        UVec2 { x: 2048, y: 2048 },
         id,
         None,
         None,
@@ -114,8 +113,8 @@ fn place_line_test_cpu(
                 random::<u8>(),
             ];
             let line: Vec<IVec2> = Bresenham::new(
-                (random::<i8>() as i32 - 1048, random::<i8>() as i32 - 1048),
-                (random::<i8>() as i32 - 1048, random::<i8>() as i32 + 1048),
+                (random::<i8>() as i32 * 4, random::<i8>() as i32 * 4),
+                (random::<i8>() as i32 * 4, random::<i8>() as i32 * 4),
             )
             .map(|(x, y)| IVec2 { x, y })
             .collect();
@@ -145,12 +144,12 @@ fn place_tex_test_gpu(
                 vec![
                     PixelPositionedTexture {
                         image: imgs.0[0].clone(),
-                        position: IVec2::new(random::<i8>() as i32, random::<i8>() as i32),
+                        position: IVec2::new(random::<i8>() as i32 * 4, random::<i8>() as i32 * 4),
                         size: UVec2::new(2117, 1254),
                     },
                     PixelPositionedTexture {
                         image: imgs.0[1].clone(),
-                        position: IVec2::new(random::<i8>() as i32, random::<i8>() as i32),
+                        position: IVec2::new(random::<i8>() as i32 * 4, random::<i8>() as i32 * 4),
                         size: UVec2::new(1267, 659),
                     },
                 ],
