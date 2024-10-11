@@ -432,10 +432,10 @@ fn apply_ops(
 ) {
     for (chunk_pos, bind_groups) in render_data.0.iter() {
         let pipeline_id = *render_data.1.get(chunk_pos).unwrap();
-        pipeline_cache.get_compute_pipeline_state(pipeline_id);
         if let CachedPipelineState::Ok(_) = pipeline_cache.get_compute_pipeline_state(pipeline_id) {
             let pipeline = pipeline_cache.get_compute_pipeline(pipeline_id).unwrap();
             for binds in bind_groups.iter() {
+                println!("{}", chunk_pos);
                 let mut command_encoder =
                     render_device.create_command_encoder(&CommandEncoderDescriptor::default());
                 {

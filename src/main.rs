@@ -18,7 +18,7 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_systems(Startup, setup)
         //        .add_systems(Update, place_uv_test_cpu)
-        //        .add_systems(Update, place_line_test_cpu)
+        .add_systems(Update, place_line_test_cpu)
         //        .add_systems(Update, get_pixel_test_cpu)
         .add_systems(Update, place_tex_test_gpu)
         .add_plugins(PixelMapGpuComputePlugin)
@@ -115,7 +115,7 @@ fn place_line_test_cpu(
             ];
             let line: Vec<IVec2> = Bresenham::new(
                 (random::<i8>() as i32 - 1048, random::<i8>() as i32 - 1048),
-                (random::<i8>() as i32 + 1048, random::<i8>() as i32 + 1048),
+                (random::<i8>() as i32 - 1048, random::<i8>() as i32 + 1048),
             )
             .map(|(x, y)| IVec2 { x, y })
             .collect();
@@ -145,18 +145,12 @@ fn place_tex_test_gpu(
                 vec![
                     PixelPositionedTexture {
                         image: imgs.0[0].clone(),
-                        position: IVec2::new(
-                            random::<i8>() as i32 - 1048,
-                            random::<i8>() as i32 - 1048,
-                        ),
+                        position: IVec2::new(random::<i8>() as i32, random::<i8>() as i32),
                         size: UVec2::new(2117, 1254),
                     },
                     PixelPositionedTexture {
                         image: imgs.0[1].clone(),
-                        position: IVec2::new(
-                            random::<i8>() as i32 - 1048,
-                            random::<i8>() as i32 - 1048,
-                        ),
+                        position: IVec2::new(random::<i8>() as i32, random::<i8>() as i32),
                         size: UVec2::new(1267, 659),
                     },
                 ],

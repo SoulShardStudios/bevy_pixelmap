@@ -17,40 +17,34 @@
 fn main(@builtin(global_invocation_id) invocation_id: vec3<u32>) {
     let coords: vec2<i32> = vec2<i32>(invocation_id.xy);
 
-    let refined_coords: vec2<i32> = coords + input_texture_pos;
-
     for (var i: u32 = 0; i < 8; i = i + 1) {
-        let source_pos = source_texture_pos[i];
+        let source_pos = source_texture_pos[i] + coords;
         let source_size = source_texture_size[i];
 
-        let source_coords_texture: vec2<i32> = refined_coords - source_pos;
 
-        if (source_coords_texture.x < 0 || source_coords_texture.x >= i32(source_size.x) ||
-            source_coords_texture.y < 0 || source_coords_texture.y >= i32(source_size.y)) {
-            continue;
-        }
+        var possey =  input_texture_pos - source_texture_pos[i] + vec2<i32>(coords.x, coords.y * -1);
 
         var source_pixel: vec4<f32> = vec4<f32>(0.0);
         if (i == 0u) {
-            source_pixel = textureLoad(source_textures_0, source_coords_texture);
+            source_pixel = textureLoad(source_textures_0, possey);
         } else if (i == 1u) {
-            source_pixel = textureLoad(source_textures_1, source_coords_texture);
+            source_pixel = textureLoad(source_textures_1, possey);
         } else if (i == 2u) {
-            source_pixel = textureLoad(source_textures_2, source_coords_texture);
+            source_pixel = textureLoad(source_textures_2, possey);
         } else if (i == 3u) {
-            source_pixel = textureLoad(source_textures_3, source_coords_texture);
+            source_pixel = textureLoad(source_textures_3, possey);
         } else if (i == 4u) {
-            source_pixel = textureLoad(source_textures_4, source_coords_texture);
+            source_pixel = textureLoad(source_textures_4, possey);
         } else if (i == 5u) {
-            source_pixel = textureLoad(source_textures_5, source_coords_texture);
+            source_pixel = textureLoad(source_textures_5, possey);
         } else if (i == 6u) {
-            source_pixel = textureLoad(source_textures_6, source_coords_texture);
+            source_pixel = textureLoad(source_textures_6, possey);
         } else if (i == 7u) {
-            source_pixel = textureLoad(source_textures_7, source_coords_texture);
+            source_pixel = textureLoad(source_textures_7, possey);
         }
 
         if (source_pixel.a > 0.0) {
-            textureStore(input_texture, refined_coords, source_pixel);
+            textureStore(input_texture, coords, source_pixel);
         }
     }
 }
