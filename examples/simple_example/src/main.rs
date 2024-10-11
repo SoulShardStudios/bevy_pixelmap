@@ -121,7 +121,7 @@ fn place_line_test_cpu(
         lines.0 = handle.clone();
         pixel_map.set_pixels_gpu(
             vec![PixelPositionedTexture {
-                position: IVec2::new(random::<i8>() as i32 * 4, random::<i8>() as i32 * 4),
+                position: IVec2::new(random::<i8>() as i32 * 20, random::<i8>() as i32 * 20),
                 image: handle,
                 size: UVec2 { x: 255, y: 255 },
             }],
@@ -142,15 +142,26 @@ fn place_tex_test_gpu(
                 vec![
                     PixelPositionedTexture {
                         image: imgs.0[0].clone(),
-                        position: IVec2::new(random::<i8>() as i32 * 4, random::<i8>() as i32 * 4),
+                        position: IVec2::new(
+                            random::<i8>() as i32 * 20,
+                            random::<i8>() as i32 * 20,
+                        ),
                         size: UVec2::new(860, 888),
                     },
                     PixelPositionedTexture {
                         image: imgs.0[1].clone(),
-                        position: IVec2::new(random::<i8>() as i32 * 4, random::<i8>() as i32 * 4),
+                        position: IVec2::new(
+                            random::<i8>() as i32 * 20,
+                            random::<i8>() as i32 * 20,
+                        ),
                         size: UVec2::new(860, 219),
                     },
-                ],
+                ]
+                .iter()
+                .cloned()
+                .cycle()
+                .take(8)
+                .collect::<Vec<_>>(),
                 &mut textures,
             );
         }
