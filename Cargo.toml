@@ -17,5 +17,7 @@ opt-level = 3
 [dependencies]
 bevy = "^0.14"
 bevy-inspector-egui = "^0.26"
+bytemuck = "1.18.0"
 line_drawing = "1.0.0"
 rand = "0.8.5"
+wgpu = "0.20.1"

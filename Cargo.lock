@@ -871,8 +871,10 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy-inspector-egui",
+ "bytemuck",
  "line_drawing",
  "rand",
+ "wgpu",
 ]
 
 [[package]]
