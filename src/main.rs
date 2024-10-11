@@ -56,7 +56,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         })
         .id();
     commands.entity(id).insert(PixelMap::new(
-        UVec2 { x: 100, y: 100 },
+        UVec2 { x: 200, y: 200 },
         id,
         None,
         None,

@@ -47,8 +47,5 @@ fn main(@builtin(global_invocation_id) invocation_id: vec3<u32>) {
         if (source_pixel.a > 0.0) {
             textureStore(input_texture, coords, source_pixel);
         }
-        else{
-        textureStore(input_texture, coords, vec4<f32>(1.0));
-        }
     }
 }
