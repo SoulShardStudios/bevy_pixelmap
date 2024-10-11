@@ -23,7 +23,7 @@ fn main(@builtin(global_invocation_id) invocation_id: vec3<u32>) {
 
 
         var possey = input_texture_pos - source_texture_pos[i] + vec2<i32>(coords.x, coords.y * -1);
-        var possey2 = vec2<i32>(possey.x, possey.y * -1 + i32(source_texture_size[i].y));
+        var possey2 = vec2<i32>(possey.x, possey.y * -1 + i32(source_texture_size[i].y) - i32(input_texture_size.y));
 
         var source_pixel: vec4<f32> = vec4<f32>(0.0);
         if (i == 0u) {
