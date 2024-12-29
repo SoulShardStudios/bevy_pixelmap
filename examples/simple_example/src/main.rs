@@ -16,13 +16,11 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_systems(Startup, setup)
-        .add_systems(
-            Update,
-            (place_line_test_cpu, get_pixel_test_cpu, place_tex_test_gpu),
-        )
+        .add_systems(Update, (place_line_test_cpu, get_pixel_test_cpu))
         .add_plugins(PixelMapGpuComputePlugin)
         .add_plugins(LogDiagnosticsPlugin::default())
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
+        .add_plugins(WorldInspectorPlugin::default())
         .run();
 }
 
@@ -130,6 +128,7 @@ fn place_line_test_cpu(
     }
 }
 
+/*
 fn place_tex_test_gpu(
     mut query: Query<&mut PixelMap>,
     mut textures: ResMut<Assets<Image>>,
@@ -167,3 +166,5 @@ fn place_tex_test_gpu(
         }
     }
 }
+
+*/
