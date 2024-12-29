@@ -23,7 +23,6 @@ fn main() {
         .add_plugins(PixelMapGpuComputePlugin)
         .add_plugins(LogDiagnosticsPlugin::default())
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
-        .add_plugins(WorldInspectorPlugin::new())
         .run();
 }
 
@@ -60,6 +59,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         None,
         None,
         None,
+        vec!["shaders/sand_sim.wgsl".into()],
     ));
 
     commands.insert_resource(Imgs(vec![
