@@ -6,6 +6,7 @@ use bevy::render::render_resource::{
     ComputePipelineDescriptor, IntoBinding, PipelineCache,
 };
 use bevy::render::renderer::RenderQueue;
+use bevy::utils::hashbrown::HashMap;
 use bevy::{
     prelude::*,
     render::{
@@ -21,7 +22,6 @@ use bevy::{
         texture::{GpuImage, ImageSampler},
         Render, RenderApp, RenderSet,
     },
-    utils::HashMap,
 };
 use lazy_static::lazy_static;
 use std::iter::once;
@@ -60,6 +60,7 @@ pub struct PixelMap {
     chunk_size: UVec2,
     image_data: Vec<Handle<Image>>,
     positions: HashMap<IVec2, usize>,
+    simulation_shaders: Vec<String>,
     empty_texture: Image,
     root_entity: Entity,
     default_chunk_color: [u8; 4],
@@ -81,6 +82,7 @@ impl PixelMap {
         empty_texture: Option<Image>,
         sampler: Option<ImageSampler>,
         default_chunk_color: Option<[u8; 4]>,
+        simulation_shaders: Vec<String>,
     ) -> Self {
         let color = default_chunk_color.unwrap_or([0, 0, 0, 0]);
         let mut empty = empty_texture.unwrap_or_else(|| {
@@ -109,6 +111,7 @@ impl PixelMap {
             default_chunk_color: color,
             texture_queue: vec![],
             texture_to_chunk_posses: HashMap::new(),
+            simulation_shaders,
         }
     }
 
@@ -192,10 +195,12 @@ impl PixelMap {
 pub struct PixelMapGpuComputePlugin;
 
 #[derive(Resource)]
-struct RenderData(
-    HashMap<IVec2, Vec<(BindGroup, UVec2)>>,
-    HashMap<IVec2, CachedComputePipelineId>,
-);
+struct RenderData {
+    bind_map: HashMap<IVec2, Vec<(BindGroup, UVec2)>>,
+    shader_map: HashMap<IVec2, CachedComputePipelineId>,
+    bind_map_2: HashMap<IVec2, Vec<(BindGroup, UVec2)>>,
+    shader_map_2: HashMap<IVec2, Vec<CachedComputePipelineId>>,
+}
 
 impl Plugin for PixelMapGpuComputePlugin {
     fn build(&self, app: &mut App) {
@@ -205,7 +210,12 @@ impl Plugin for PixelMapGpuComputePlugin {
         render_app
             .add_systems(Render, prepare_binds.in_set(RenderSet::PrepareBindGroups))
             .add_systems(Render, apply_ops)
-            .insert_resource(RenderData(HashMap::new(), HashMap::new()));
+            .insert_resource(RenderData {
+                bind_map: HashMap::default(),
+                shader_map: HashMap::default(),
+                bind_map_2: HashMap::default(),
+                shader_map_2: HashMap::default(),
+            });
     }
 }
 
@@ -326,18 +336,28 @@ fn prepare_binds(
                         source_view.into_binding(),
                     )),
                 );
-                if !render_data.0.contains_key(chunk_pos) {
+                let layout_2 = PixelMapShaderLayoutInput::new(&render_device).bind_group_layout_2;
+                let binds_2 = render_device.create_bind_group(
+                    "pixel map bind group",
+                    &layout_2,
+                    &BindGroupEntries::sequential((
+                        input_view.texture_view.into_binding(),
+                        input_texture_pos_buffer.as_entire_binding(),
+                        input_texture_size_buffer.as_entire_binding(),
+                    )),
+                );
+                if !render_data.bind_map.contains_key(chunk_pos) {
                     render_data
-                        .0
+                        .bind_map
                         .insert(*chunk_pos, vec![(binds, pixel_map.chunk_size)]);
                 } else {
                     render_data
-                        .0
+                        .bind_map
                         .get_mut(chunk_pos)
                         .unwrap()
                         .push((binds, pixel_map.chunk_size));
                 }
-                if !render_data.1.contains_key(chunk_pos) {
+                if !render_data.shader_map.contains_key(chunk_pos) {
                     let shader = asset_server.load(ASSETS_PATH.join("place_tex.wgsl"));
                     let pipeline =
                         pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
@@ -348,7 +368,40 @@ fn prepare_binds(
                             shader_defs: vec![],
                             entry_point: Cow::from("main"),
                         });
-                    assert!(render_data.1.insert(*chunk_pos, pipeline).is_none());
+                    assert!(render_data
+                        .shader_map
+                        .insert(*chunk_pos, pipeline)
+                        .is_none());
+                }
+                if !render_data.bind_map_2.contains_key(chunk_pos) {
+                    render_data
+                        .bind_map_2
+                        .insert(*chunk_pos, vec![(binds_2, pixel_map.chunk_size)]);
+                } else {
+                    render_data
+                        .bind_map_2
+                        .get_mut(chunk_pos)
+                        .unwrap()
+                        .push((binds_2, pixel_map.chunk_size));
+                }
+                if !render_data.shader_map_2.contains_key(chunk_pos) {
+                    for shader_id in pixel_map.simulation_shaders.iter() {
+                        let shader = asset_server.load(shader_id.clone());
+                        let pipeline =
+                            pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
+                                label: None,
+                                layout: vec![layout_2.clone()],
+                                push_constant_ranges: Vec::new(),
+                                shader: shader.clone(),
+                                shader_defs: vec![],
+                                entry_point: Cow::from("main"),
+                            });
+                        if let Some(vec) = render_data.shader_map_2.get_mut(chunk_pos) {
+                            vec.push(pipeline);
+                        } else {
+                            render_data.shader_map_2.insert(*chunk_pos, vec![pipeline]);
+                        }
+                    }
                 }
             }
         }
@@ -361,8 +414,9 @@ fn apply_ops(
     pipeline_cache: Res<PipelineCache>,
     render_queue: Res<RenderQueue>,
 ) {
-    for (chunk_pos, bind_groups) in render_data.0.iter() {
-        let pipeline_id = *render_data.1.get(chunk_pos).unwrap();
+    // Layer 1 operations
+    for (chunk_pos, bind_groups) in render_data.bind_map.iter() {
+        let pipeline_id = *render_data.shader_map.get(chunk_pos).unwrap();
         if let CachedPipelineState::Ok(_) = pipeline_cache.get_compute_pipeline_state(pipeline_id) {
             let pipeline = pipeline_cache.get_compute_pipeline(pipeline_id).unwrap();
             for binds in bind_groups.iter() {
@@ -377,15 +431,42 @@ fn apply_ops(
                 }
 
                 render_queue.submit(once(command_encoder.finish()));
-                render_device.poll(wgpu::MaintainBase::Wait);
             }
         }
     }
-    render_data.0.clear();
+
+    for (chunk_pos, bind_groups) in render_data.bind_map_2.iter() {
+        for pipeline_id in (*render_data.shader_map_2.get(chunk_pos).unwrap()).iter() {
+            if let CachedPipelineState::Ok(_) =
+                pipeline_cache.get_compute_pipeline_state(pipeline_id.clone())
+            {
+                let pipeline = pipeline_cache
+                    .get_compute_pipeline(pipeline_id.clone())
+                    .unwrap();
+                for binds in bind_groups.iter() {
+                    let mut command_encoder =
+                        render_device.create_command_encoder(&CommandEncoderDescriptor::default());
+                    {
+                        let mut pass =
+                            command_encoder.begin_compute_pass(&ComputePassDescriptor::default());
+                        pass.set_pipeline(pipeline);
+                        pass.set_bind_group(0, &binds.0, &[]);
+                        pass.dispatch_workgroups(binds.1.x / 8, binds.1.y / 8, 1);
+                    }
+
+                    render_queue.submit(once(command_encoder.finish()));
+                }
+            }
+        }
+    }
+
+    render_data.bind_map_2.clear();
+    render_data.bind_map.clear();
 }
 
 struct PixelMapShaderLayoutInput {
     pub bind_group_layout: BindGroupLayout,
+    pub bind_group_layout_2: BindGroupLayout,
 }
 
 impl PixelMapShaderLayoutInput {
@@ -456,6 +537,45 @@ impl PixelMapShaderLayoutInput {
             ],
         );
 
-        Self { bind_group_layout }
+        let bind_group_layout_2 = device.create_bind_group_layout(
+            Some("set_pixels_cpu Bind Group Layout 2"),
+            &[
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::StorageTexture {
+                        access: StorageTextureAccess::ReadWrite,
+                        format: TextureFormat::Rgba8Unorm,
+                        view_dimension: TextureViewDimension::D2,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        );
+
+        Self {
+            bind_group_layout,
+            bind_group_layout_2,
+        }
     }
 }
