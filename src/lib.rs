@@ -157,7 +157,10 @@ impl PixelMap {
         let tex_handle = textures.add(self.empty_texture.clone());
         let id = commands
             .spawn(SpriteBundle {
-                texture: tex_handle.clone(),
+                sprite: Sprite {
+                    image: tex_handle.clone(),
+                    ..default()
+                },
                 transform: Transform::from_xyz(computed_position.x, computed_position.y, 0.0),
                 ..Default::default()
             })
@@ -365,6 +368,7 @@ fn prepare_binds(
                             layout: vec![layout.clone()],
                             push_constant_ranges: Vec::new(),
                             shader: shader.clone(),
+                            zero_initialize_workgroup_memory: true,
                             shader_defs: vec![],
                             entry_point: Cow::from("main"),
                         });
@@ -392,6 +396,7 @@ fn prepare_binds(
                                 label: None,
                                 layout: vec![layout_2.clone()],
                                 push_constant_ranges: Vec::new(),
+                                zero_initialize_workgroup_memory: true,
                                 shader: shader.clone(),
                                 shader_defs: vec![],
                                 entry_point: Cow::from("main"),

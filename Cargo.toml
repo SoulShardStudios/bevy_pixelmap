@@ -5,8 +5,7 @@ resolver = "2"
 edition = "2021"
 
 [dependencies]
-bevy = "^0.14"
-bevy-inspector-egui = "^0.26"
+bevy = "0.15"
 bytemuck = "1.18.0"
 lazy_static = "1.5.0"
 line_drawing = "1.0.0"

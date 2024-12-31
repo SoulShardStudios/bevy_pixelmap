@@ -1,26 +1,27 @@
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_pixelmap::*;
 extern crate bevy;
-extern crate bevy_inspector_egui;
 extern crate rand;
 use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
+use bevy::prelude::*;
 use bevy::render::render_asset::RenderAssetUsages;
-use bevy::{prelude::*, render::camera::ScalingMode};
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use line_drawing::Bresenham;
 
 use rand::random;
-const WINDOW_SIZE: UVec2 = UVec2 { x: 426, y: 240 }; // 240p
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_systems(Startup, setup)
-        .add_systems(Update, (place_line_test_cpu, get_pixel_test_cpu))
+        .add_systems(
+            Update,
+            (place_line_test_cpu, get_pixel_test_cpu, place_tex_test_gpu),
+        )
+        .add_plugins(WorldInspectorPlugin::default())
         .add_plugins(PixelMapGpuComputePlugin)
         .add_plugins(LogDiagnosticsPlugin::default())
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
-        .add_plugins(WorldInspectorPlugin::default())
         .run();
 }
 
@@ -28,28 +29,17 @@ fn main() {
 struct Imgs(Vec<Handle<Image>>);
 
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands.spawn(Camera2dBundle {
-        projection: OrthographicProjection {
-            scaling_mode: ScalingMode::Fixed {
-                width: WINDOW_SIZE[0] as f32 * 3.0,
-                height: WINDOW_SIZE[1] as f32 * 3.0,
-            },
-            ..Default::default()
-        },
-        transform: Transform::from_translation(Vec3 {
+    commands.spawn((
+        Camera2d::default(),
+        Transform::from_translation(Vec3 {
             x: 0.0,
             y: 0.0,
             z: 10.0,
         }),
-        ..Default::default()
-    });
+    ));
     let id = commands
-        .spawn(TransformBundle {
-            ..Default::default()
-        })
-        .insert(VisibilityBundle {
-            ..Default::default()
-        })
+        .spawn(Transform::default())
+        .insert(Visibility::Visible)
         .id();
     commands.entity(id).insert(PixelMap::new(
         UVec2 { x: 1000, y: 1000 },
@@ -128,7 +118,6 @@ fn place_line_test_cpu(
     }
 }
 
-/*
 fn place_tex_test_gpu(
     mut query: Query<&mut PixelMap>,
     mut textures: ResMut<Assets<Image>>,
@@ -166,5 +155,3 @@ fn place_tex_test_gpu(
         }
     }
 }
-
-*/
